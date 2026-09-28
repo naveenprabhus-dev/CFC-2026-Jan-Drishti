@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+.npm/
+.pnpm-store/
+
+# Production build artifacts
+dist/
+build/
+out/
+coverage/
+.vite/
+.cache/
+*.tsbuildinfo
+
+# Environment variables & API keys / secrets
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+*.env
+*.pem
+*.key
+*.cert
+*.pfx
+*.p12
+id_rsa*
+credentials.json
+client_secret*.json
+service-account*.json
+firebase-applet-config.json
+
+# Local runtime data & file uploads
+data/*.json
+data/uploads/*
+!data/.gitkeep
+!data/uploads/.gitkeep
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs & temp files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+tmp/
+temp/
+
+# Operating System & IDE metadata
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
