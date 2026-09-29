@@ -38,6 +38,8 @@ export interface UserSession {
   homeWard?: string;
   authorizedRegion?: string;
   financialThreshold?: number;
+  circleId?: string;
+  jurisdictionIds?: string[];
   // Secure Admin Preview & Impersonation Session
   isPreviewSession?: boolean;
   actualAdminId?: string;
@@ -267,6 +269,11 @@ export interface Project {
   department: string;
   district: string;
   state: string;
+  circleId?: string;
+  jurisdictionId?: string;
+  sanctioningAuthorityId?: string;
+  sanctioningAuthorityName?: string;
+  sanctionRequestId?: string;
   sanctionNumber: string;
   status: ProjectStatus;
   contractorId?: string;

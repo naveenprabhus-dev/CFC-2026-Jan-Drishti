@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import {
   CitizenRequest,
   WorkToken,
@@ -16,6 +17,44 @@ import {
   ProjectTender,
   TenderQuote,
 } from '../../src/types/domain';
+
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, storedHash?: string): boolean {
+  if (!storedHash || !password) return false;
+  if (!storedHash.includes(':')) {
+    return password === storedHash;
+  }
+  const [salt, key] = storedHash.split(':');
+  if (!salt || !key) return false;
+  try {
+    const keyBuffer = Buffer.from(key, 'hex');
+    const derivedKey = crypto.scryptSync(password, salt, 64);
+    return crypto.timingSafeEqual(keyBuffer, derivedKey);
+  } catch {
+    return false;
+  }
+}
+
+export function sanitizeUser(user: UserSession): UserSession {
+  const sanitized = { ...user };
+  delete sanitized.password;
+  return sanitized;
+}
+
+export interface ActiveSession {
+  token: string;
+  userId: string;
+  role: UserRole;
+  isPreview?: boolean;
+  actualAdminId?: string;
+  createdAt: string;
+  expiresAt: string;
+}
 
 export interface DatabaseSchema {
   users: UserSession[];
@@ -36,7 +75,7 @@ export interface DatabaseSchema {
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'cfc_store.json');
 
-// The application starts with primary administrative and sanctioning accounts
+// The application starts with primary administrative account
 export const DEFAULT_ADMIN: UserSession = {
   id: 'admin-001',
   name: 'System Administrator',
@@ -59,7 +98,7 @@ export const DEFAULT_ADMIN: UserSession = {
   phone: '+91 94440 00001',
   primaryLanguage: 'en',
   status: 'active',
-  password: 'admin',
+  password: hashPassword('admin'),
 };
 
 export const DEFAULT_SANCTIONER: UserSession = {
@@ -70,21 +109,20 @@ export const DEFAULT_SANCTIONER: UserSession = {
   designation: 'Principal Sanctioning Officer & Financial Commissioner',
   jurisdiction: 'Coimbatore & Western Circle',
   department: 'Finance & Treasury Sanctioning Department',
-  authorityScope: 'Final authority for financial sanction, treasury authorization, and contractor award confirmation up to ₹1,00,00,000.',
+  authorityScope: 'Final authority for financial sanction and contractor award confirmation up to ₹1,00,00,000.',
   financialThreshold: 10000000,
   permissions: [
     'REVIEW_SANCTION_QUEUE',
     'APPROVE_FINANCIAL_SANCTION',
     'RETURN_FOR_REVISION',
     'REJECT_SANCTION',
-    'ESTABLISH_SANCTIONED_AMOUNT',
-    'AUTHORIZE_TREASURY_RELEASE'
+    'ESTABLISH_SANCTIONED_AMOUNT'
   ],
   avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
   phone: '+91 94440 00002',
   primaryLanguage: 'en',
   status: 'active',
-  password: 'sanctioner',
+  password: hashPassword('sanctioner'),
   homeDistrict: 'Coimbatore',
   homeState: 'Tamil Nadu',
 };
@@ -136,6 +174,7 @@ export function createCleanDatabase(): DatabaseSchema {
 
 class DatabaseStore {
   private data: DatabaseSchema;
+  private sessions: Map<string, ActiveSession> = new Map();
 
   constructor() {
     this.data = this.loadData();
@@ -151,10 +190,21 @@ class DatabaseStore {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.users)) {
+          let modified = false;
           // Ensure default admin exists
           if (!parsed.users.some((u: UserSession) => u.role === 'ADMIN' || u.id === 'admin-001')) {
             parsed.users.unshift({ ...DEFAULT_ADMIN });
+            modified = true;
           }
+
+          // Ensure all stored passwords are secure hashes
+          parsed.users.forEach((u: UserSession) => {
+            if (u.password && !u.password.includes(':')) {
+              u.password = hashPassword(u.password);
+              modified = true;
+            }
+          });
+
           if (!Array.isArray(parsed.requests)) parsed.requests = [];
           if (!Array.isArray(parsed.workTokens)) parsed.workTokens = [];
           if (!Array.isArray(parsed.projects)) parsed.projects = [];
@@ -165,6 +215,10 @@ class DatabaseStore {
           if (!Array.isArray(parsed.auditEvents)) parsed.auditEvents = [];
           if (!Array.isArray(parsed.notifications)) parsed.notifications = [];
           
+          if (modified) {
+            this.saveData(parsed as DatabaseSchema);
+          }
+
           return parsed as DatabaseSchema;
         }
       }
@@ -175,6 +229,59 @@ class DatabaseStore {
     const clean = createCleanDatabase();
     this.saveData(clean);
     return clean;
+  }
+
+  // --- Session Management ---
+  public createSession(userId: string, isPreview?: boolean, actualAdminId?: string): { token: string; expiresAt: string } {
+    const user = this.getUserById(userId);
+    if (!user) throw new Error('User not found');
+    const token = crypto.randomBytes(32).toString('hex');
+    const now = Date.now();
+    const expiresAt = new Date(now + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+    const session: ActiveSession = {
+      token,
+      userId: user.id,
+      role: user.role,
+      isPreview: !!isPreview,
+      actualAdminId: isPreview ? actualAdminId : undefined,
+      createdAt: new Date(now).toISOString(),
+      expiresAt,
+    };
+    this.sessions.set(token, session);
+    return { token, expiresAt };
+  }
+
+  public getSession(token: string): { user: UserSession; isPreview?: boolean; actualAdminId?: string; token: string } | null {
+    if (!token) return null;
+    const session = this.sessions.get(token);
+    if (!session) return null;
+    if (new Date(session.expiresAt).getTime() < Date.now()) {
+      this.sessions.delete(token);
+      return null;
+    }
+    const user = this.getUserById(session.userId);
+    if (!user || user.status === 'inactive') {
+      this.sessions.delete(token);
+      return null;
+    }
+    return {
+      user,
+      isPreview: session.isPreview,
+      actualAdminId: session.actualAdminId,
+      token: session.token,
+    };
+  }
+
+  public deleteSession(token: string): void {
+    if (token) this.sessions.delete(token);
+  }
+
+  public deleteUserSessions(userId: string): void {
+    for (const [token, s] of this.sessions.entries()) {
+      if (s.userId === userId || s.actualAdminId === userId) {
+        this.sessions.delete(token);
+      }
+    }
   }
 
   private saveData(dataToSave?: DatabaseSchema) {
@@ -214,24 +321,32 @@ class DatabaseStore {
   }
 
   public createUser(user: UserSession): UserSession {
+    const userToSave = { ...user };
+    if (userToSave.password && !userToSave.password.includes(':')) {
+      userToSave.password = hashPassword(userToSave.password);
+    }
     const existingIndex = this.data.users.findIndex(
-      (u) => u.id.toLowerCase() === user.id.toLowerCase() || u.email.toLowerCase() === user.email.toLowerCase()
+      (u) => u.id.toLowerCase() === userToSave.id.toLowerCase() || u.email.toLowerCase() === userToSave.email.toLowerCase()
     );
     if (existingIndex >= 0) {
-      this.data.users[existingIndex] = { ...this.data.users[existingIndex], ...user };
+      this.data.users[existingIndex] = { ...this.data.users[existingIndex], ...userToSave };
     } else {
-      this.data.users.push(user);
+      this.data.users.push(userToSave);
     }
     this.saveData();
-    return user;
+    return userToSave;
   }
 
   public updateUser(id: string, updates: Partial<UserSession>): UserSession | undefined {
     const idx = this.data.users.findIndex((u) => u.id.toLowerCase() === id.toLowerCase());
     if (idx === -1) return undefined;
+    const updatesToApply = { ...updates };
+    if (updatesToApply.password && !updatesToApply.password.includes(':')) {
+      updatesToApply.password = hashPassword(updatesToApply.password);
+    }
     this.data.users[idx] = {
       ...this.data.users[idx],
-      ...updates,
+      ...updatesToApply,
     };
     this.saveData();
     return this.data.users[idx];

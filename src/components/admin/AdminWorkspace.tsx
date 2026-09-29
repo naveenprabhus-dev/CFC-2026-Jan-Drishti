@@ -685,7 +685,7 @@ export const AdminWorkspace: React.FC = () => {
                 value={authorityScope}
                 onChange={(e) => setAuthorityScope(e.target.value)}
                 rows={2}
-                placeholder={role === 'OFFICIAL' ? 'Triage incoming reports, issue Work Tokens, recommend contractors, conduct field inspections.' : role === 'SANCTIONING_AUTHORITY' ? 'Final authority for financial sanction, treasury release authorization, and contractor award confirmation up to configured ceiling.' : 'Macro regional monitoring, delay radar oversight, funding absorption optimization.'}
+                placeholder={role === 'OFFICIAL' ? 'Triage incoming reports, issue Work Tokens, recommend contractors, conduct field inspections.' : role === 'SANCTIONING_AUTHORITY' ? 'Final authority for technical and financial sanction review, budget sanctioning, and contractor award confirmation up to configured ceiling.' : 'Macro regional monitoring, delay radar oversight, funding absorption optimization, and treasury authorization.'}
                 className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition"
               />
             </div>

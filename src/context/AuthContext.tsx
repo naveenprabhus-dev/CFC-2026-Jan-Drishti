@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { UserSession, UserRole, AppNotification } from '../types/domain';
-import { apiClient, setActiveSession, setActiveUserId } from '../services/api';
+import { apiClient, setActiveSession, setActiveUserId, clearActiveSession } from '../services/api';
 import { useLanguage } from './LanguageContext';
 import { LanguageCode, SUPPORTED_LANGUAGES } from '../i18n/translations';
 
@@ -69,54 +69,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const users = await apiClient.getUsers();
       setAllUsers(users);
 
-      // Check persisted session
-      const savedUserId = localStorage.getItem(STORAGE_USER_ID);
-      const isPreview = localStorage.getItem(STORAGE_ADMIN_PREVIEW) === 'true';
-      const actualAdminId = localStorage.getItem(STORAGE_ACTUAL_ADMIN_ID) || 'admin-001';
-
-      if (savedUserId) {
-        const found = users.find((u) => u.id.toLowerCase() === savedUserId.toLowerCase());
-        if (found) {
-          if (isPreview) {
-            const adminUser = users.find((u) => u.id.toLowerCase() === actualAdminId.toLowerCase());
-            const previewSession: UserSession = {
-              ...found,
-              isPreviewSession: true,
-              actualAdminId: adminUser?.id || actualAdminId,
-              actualAdminName: adminUser?.name || 'Administrator',
-            };
-            setCurrentUser(previewSession);
-            setActiveSession(found.id, actualAdminId, true);
-            applyUserLanguage(found);
+      // Check persisted server-issued session token
+      const savedToken = localStorage.getItem('cfc_auth_token');
+      if (savedToken) {
+        try {
+          const me = await apiClient.getMe();
+          if (me) {
+            const isPreview = me.isPreviewSession === true;
+            setCurrentUser(me);
+            setActiveSession(me.id, me.actualAdminId, isPreview, savedToken);
+            applyUserLanguage(me);
+            const notifs = await apiClient.getNotifications();
+            setNotifications(notifs);
           } else {
-            setCurrentUser(found);
-            setActiveSession(found.id);
-            applyUserLanguage(found);
+            clearActiveSession();
+            setCurrentUser(null);
           }
-        } else {
-          // If saved user is not found, fallback to default admin
-          const defaultAdmin = users.find((u) => u.role === 'ADMIN') || users[0];
-          if (defaultAdmin) {
-            setCurrentUser(defaultAdmin);
-            setActiveSession(defaultAdmin.id);
-            applyUserLanguage(defaultAdmin);
-          }
+        } catch {
+          // Token invalid or expired: clear stale credentials
+          clearActiveSession();
+          setCurrentUser(null);
         }
       } else {
-        // Automatically set admin on fresh launch
-        const defaultAdmin = users.find((u) => u.role === 'ADMIN') || users[0];
-        if (defaultAdmin) {
-          setCurrentUser(defaultAdmin);
-          setActiveSession(defaultAdmin.id);
-          localStorage.setItem(STORAGE_USER_ID, defaultAdmin.id);
-          applyUserLanguage(defaultAdmin);
-        }
+        // Fresh launch / no session -> Show unauthenticated Landing Page
+        clearActiveSession();
+        setCurrentUser(null);
       }
-
-      const notifs = await apiClient.getNotifications();
-      setNotifications(notifs);
     } catch (err) {
-      console.warn('Failed to load initial user/notification state:', err);
+      console.warn('Failed to load initial user state:', err);
     } finally {
       setIsLoading(false);
     }
@@ -138,9 +118,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (email: string, password?: string, role?: string): Promise<UserSession> => {
     setIsLoading(true);
     try {
-      const user = await apiClient.login({ email, password, role });
+      const res = await apiClient.login({ email, password, role });
+      const user = (res as any).user || res;
+      const token = (res as any).token || '';
       setCurrentUser(user);
-      setActiveSession(user.id);
+      setActiveSession(user.id, undefined, false, token);
       localStorage.setItem(STORAGE_USER_ID, user.id);
       localStorage.removeItem(STORAGE_ADMIN_PREVIEW);
       localStorage.removeItem(STORAGE_ACTUAL_ADMIN_ID);
@@ -171,14 +153,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoading(true);
     try {
       const res = await apiClient.startAdminPreview(targetUserId);
-      const session = res.session;
+      const session = (res as any).session || (res as any).user || res;
+      const token = (res as any).token || '';
       
       setCurrentUser(session);
-      setActiveSession(session.id, session.actualAdminId, true);
+      setActiveSession(session.id, session.actualAdminId, true, token);
       
       localStorage.setItem(STORAGE_USER_ID, session.id);
       localStorage.setItem(STORAGE_ADMIN_PREVIEW, 'true');
-      localStorage.setItem(STORAGE_ACTUAL_ADMIN_ID, session.actualAdminId || 'admin-001');
+      localStorage.setItem(STORAGE_ACTUAL_ADMIN_ID, session.actualAdminId || '');
 
       applyUserLanguage(session);
       await refreshNotifications();
@@ -192,10 +175,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoading(true);
     try {
       const currentPreviewUserId = currentUser?.id;
-      const adminUser = await apiClient.stopAdminPreview(currentPreviewUserId);
+      const res = await apiClient.stopAdminPreview(currentPreviewUserId);
+      const adminUser = (res as any).user || res;
+      const token = (res as any).token || '';
 
       setCurrentUser(adminUser);
-      setActiveSession(adminUser.id);
+      setActiveSession(adminUser.id, undefined, false, token);
 
       localStorage.setItem(STORAGE_USER_ID, adminUser.id);
       localStorage.removeItem(STORAGE_ADMIN_PREVIEW);
@@ -211,10 +196,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = () => {
     setCurrentUser(null);
-    setActiveSession('');
+    clearActiveSession();
     localStorage.removeItem(STORAGE_USER_ID);
     localStorage.removeItem(STORAGE_ADMIN_PREVIEW);
     localStorage.removeItem(STORAGE_ACTUAL_ADMIN_ID);
+    localStorage.removeItem('cfc_auth_token');
   };
 
   const refreshNotifications = async () => {

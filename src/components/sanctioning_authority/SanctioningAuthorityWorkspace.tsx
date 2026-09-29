@@ -4,6 +4,10 @@ import { useLanguage } from '../../context/LanguageContext';
 import { Project, AuditEvent } from '../../types/domain';
 import { apiClient } from '../../services/api';
 import {
+  isAuthorityEligibleForProject,
+  resolveProjectCircleId,
+} from '../../utils/jurisdictionGovernance';
+import {
   Landmark,
   CheckCircle2,
   XCircle,
@@ -85,14 +89,51 @@ export const SanctioningAuthorityWorkspace: React.FC<SanctioningAuthorityWorkspa
     fetchData();
   }, []);
 
-  // Filter pending sanction queue cases
-  const queueProjects = projects.filter((p) =>
-    ['CONTRACTOR_RECOMMENDED', 'PENDING_FINANCIAL_SANCTION', 'PROPOSED'].includes(p.status)
-  );
+  // Filter pending sanction queue cases with jurisdiction & authority eligibility
+  const queueProjects = projects.filter((p) => {
+    const isPendingStatus = [
+      'WAITING_FOR_FINANCIAL_SANCTION',
+      'PENDING_FINANCIAL_SANCTION',
+      'CONTRACTOR_RECOMMENDED',
+      'PROPOSED',
+    ].includes(p.status);
 
-  const historyProjects = projects.filter((p) =>
-    ['SANCTIONED', 'FINANCIAL_SANCTIONED', 'FINANCIAL_SANCTION_REJECTED', 'EXECUTION_ENABLED', 'CONTRACTOR_ASSIGNED', 'IN_PROGRESS', 'RETURNED', 'REJECTED'].includes(p.status)
-  );
+    if (!isPendingStatus) return false;
+
+    // Filter by authority jurisdiction circle & delegated financial ceiling
+    if (currentUser) {
+      if (p.sanctioningAuthorityId && p.sanctioningAuthorityId.toLowerCase() === currentUser.id.toLowerCase()) {
+        return true;
+      }
+      const authCheck = isAuthorityEligibleForProject(currentUser, p);
+      if (!authCheck.eligible) return false;
+    }
+
+    return true;
+  });
+
+  const historyProjects = projects.filter((p) => {
+    const isHistoryStatus = [
+      'SANCTIONED',
+      'FINANCIAL_SANCTIONED',
+      'FINANCIAL_SANCTION_REJECTED',
+      'EXECUTION_ENABLED',
+      'CONTRACTOR_ASSIGNED',
+      'IN_PROGRESS',
+      'RETURNED',
+      'REJECTED',
+      'COMPLETED',
+    ].includes(p.status);
+
+    if (!isHistoryStatus) return false;
+
+    if (currentUser) {
+      const authCheck = isAuthorityEligibleForProject(currentUser, p);
+      if (!authCheck.eligible && p.sanctioningAuthorityId !== currentUser.id) return false;
+    }
+
+    return true;
+  });
 
   const totalPendingValue = queueProjects.reduce(
     (sum, p) => sum + (p.recommendedAmount || p.funding?.contracted || p.funding?.sanctioned || p.funding?.allocated || 0),
@@ -446,6 +487,9 @@ export const SanctioningAuthorityWorkspace: React.FC<SanctioningAuthorityWorkspa
                           <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="truncate">{p.district}, {p.state || 'Tamil Nadu'}</span>
                         </div>
+                        <span className="text-[9px] font-mono font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200 mt-1 inline-block">
+                          {p.circleId || p.jurisdictionId || resolveProjectCircleId(p)}
+                        </span>
                       </div>
 
                       <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-200">

@@ -4,6 +4,10 @@ import { apiClient } from '../../services/api';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { useLanguage } from '../../context/LanguageContext';
 import {
+  isContractorEligibleForProject,
+  resolveProjectCircleId,
+} from '../../utils/jurisdictionGovernance';
+import {
   X,
   HardHat,
   ShieldCheck,
@@ -11,6 +15,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   IndianRupee,
+  MapPin,
 } from 'lucide-react';
 
 interface AssignContractorModalProps {
@@ -28,27 +33,13 @@ export const AssignContractorModal: React.FC<AssignContractorModalProps> = ({
 }) => {
   const { t } = useLanguage();
 
-  const allContractors = contractors.filter((u) => u.role === 'CONTRACTOR');
-  const filteredContractors = allContractors.filter((c) => {
-    const prjDist = (project.district || '').toLowerCase();
-    const prjState = (project.state || '').toLowerCase();
-    const cDist = (c.homeDistrict || '').toLowerCase();
-    const cState = (c.homeState || '').toLowerCase();
-    const cJuris = (c.jurisdiction || '').toLowerCase();
-    if (!prjDist && !prjState) return true;
-    if (cDist && prjDist && (cDist.includes(prjDist) || prjDist.includes(cDist))) return true;
-    if (cState && prjState && (cState.includes(prjState) || prjState.includes(cState))) return true;
-    if (cJuris) {
-      if (prjDist && cJuris.includes(prjDist)) return true;
-      if (prjState && cJuris.includes(prjState)) return true;
-      return false;
-    }
-    return true;
-  });
-  const displayContractors = filteredContractors.length > 0 ? filteredContractors : (allContractors.length > 0 ? allContractors : contractors);
+  const projectCircleId = resolveProjectCircleId(project);
+  const eligibleContractors = contractors.filter((c) =>
+    isContractorEligibleForProject(c, project).eligible
+  );
 
   const [contractorId, setContractorId] = useState(
-    displayContractors[0]?.id || 'contractor-01'
+    eligibleContractors[0]?.id || ''
   );
   const [contractedAmount, setContractedAmount] = useState(
     Math.round(project.funding.sanctioned * 0.92)
@@ -58,6 +49,11 @@ export const AssignContractorModal: React.FC<AssignContractorModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!contractorId) {
+      setErrorMsg('Please select an eligible contractor registered for this project jurisdiction circle.');
+      return;
+    }
+
     if (contractedAmount > project.funding.sanctioned) {
       setErrorMsg('Contracted amount cannot exceed sanctioned allocation limit.');
       return;
@@ -130,22 +126,43 @@ export const AssignContractorModal: React.FC<AssignContractorModalProps> = ({
             </div>
           )}
 
+          {/* Circle Jurisdiction Badge */}
+          <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2 text-indigo-900">
+              <MapPin className="w-4 h-4 text-indigo-600 shrink-0" />
+              <div>
+                <span className="text-[10px] uppercase font-bold text-indigo-500 block">Project Jurisdiction Circle</span>
+                <span className="font-mono font-bold text-indigo-950">{projectCircleId}</span>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-200/60 text-indigo-800">
+              {eligibleContractors.length} Eligible Agency
+            </span>
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Select Enlisted Contractor Agency *
             </label>
-            <select
-              value={contractorId}
-              onChange={(e) => setContractorId(e.target.value)}
-              className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
-              required
-            >
-              {displayContractors.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.organization || c.name} ({c.jurisdiction || 'Class-1 PWD Enlisted'})
-                </option>
-              ))}
-            </select>
+            {eligibleContractors.length === 0 ? (
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>No contractors currently enlisted for circle {projectCircleId}. Contractors from other jurisdictions cannot be selected.</span>
+              </div>
+            ) : (
+              <select
+                value={contractorId}
+                onChange={(e) => setContractorId(e.target.value)}
+                className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden cursor-pointer"
+                required
+              >
+                {eligibleContractors.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.organization || c.name} ({c.jurisdiction || c.homeDistrict || 'PWD Enlisted'})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div>

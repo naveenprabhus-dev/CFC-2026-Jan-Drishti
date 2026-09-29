@@ -14,14 +14,40 @@ import {
   GovernanceDocument,
 } from '../types/domain';
 
-let currentUserId = 'admin-001';
+let currentSessionToken = typeof window !== 'undefined' ? localStorage.getItem('cfc_auth_token') || '' : '';
+let currentUserId = '';
 let currentAdminId = '';
 let currentIsPreview = false;
 
-export function setActiveSession(userId: string, adminId?: string, isPreview: boolean = false) {
+export function setSessionToken(token: string) {
+  currentSessionToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem('cfc_auth_token', token);
+    } else {
+      localStorage.removeItem('cfc_auth_token');
+    }
+  }
+}
+
+export function getSessionToken(): string {
+  return currentSessionToken;
+}
+
+export function setActiveSession(userId: string, adminId?: string, isPreview: boolean = false, token?: string) {
   currentUserId = userId;
   currentAdminId = adminId || '';
   currentIsPreview = isPreview;
+  if (token !== undefined) {
+    setSessionToken(token);
+  }
+}
+
+export function clearActiveSession() {
+  currentUserId = '';
+  currentAdminId = '';
+  currentIsPreview = false;
+  setSessionToken('');
 }
 
 export function setActiveUserId(id: string) {
@@ -35,7 +61,11 @@ export function getActiveUserId() {
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-user-id': currentUserId,
+    ...(currentSessionToken ? {
+      'Authorization': `Bearer ${currentSessionToken}`,
+      'x-session-token': currentSessionToken,
+    } : {}),
+    ...(currentUserId ? { 'x-user-id': currentUserId } : {}),
     ...(currentIsPreview ? { 'x-admin-preview': 'true', 'x-actual-admin-id': currentAdminId } : {}),
     ...(options.headers as any),
   };
@@ -107,11 +137,16 @@ export const apiClient = {
   // Auth & Identity
   getUsers: () => request<UserSession[]>('/api/auth/users'),
   getMe: () => request<UserSession>('/api/auth/me'),
-  login: (payload: { email: string; password?: string; role?: string }) =>
-    request<UserSession>('/api/auth/login', {
+  login: async (payload: { email: string; password?: string; role?: string }) => {
+    const data = await request<{ user: UserSession; token: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
+    });
+    if (data?.token) {
+      setSessionToken(data.token);
+    }
+    return data;
+  },
 
   // Citizen / Contractor / NGO Self-Registration
   register: (payload: {
@@ -211,17 +246,27 @@ export const apiClient = {
     }),
 
   // Secure Admin Preview / Persona Switcher
-  startAdminPreview: (targetUserId: string) =>
-    request<{ session: UserSession; auditId: string }>('/api/auth/admin-preview/start', {
+  startAdminPreview: async (targetUserId: string) => {
+    const data = await request<{ user: UserSession; session?: UserSession; token: string; auditId: string }>('/api/auth/admin-preview/start', {
       method: 'POST',
       body: JSON.stringify({ targetUserId }),
-    }),
+    });
+    if (data?.token) {
+      setSessionToken(data.token);
+    }
+    return data;
+  },
 
-  stopAdminPreview: (currentPreviewUserId?: string) =>
-    request<UserSession>('/api/auth/admin-preview/stop', {
+  stopAdminPreview: async (currentPreviewUserId?: string) => {
+    const data = await request<{ user: UserSession; session?: UserSession; token: string }>('/api/auth/admin-preview/stop', {
       method: 'POST',
       body: JSON.stringify({ currentPreviewUserId }),
-    }),
+    });
+    if (data?.token) {
+      setSessionToken(data.token);
+    }
+    return data;
+  },
 
   // Citizen Requests
   submitRequest: async (payload: {

@@ -38,8 +38,12 @@ app.get('/api/health', (req, res) => {
 async function bootstrap() {
   if (!isProduction) {
     // Development mode with Vite middleware
+    const isHmrEnabled = process.env.ENABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: isHmrEnabled ? undefined : false,
+      },
       appType: 'spa',
     });
 

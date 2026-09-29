@@ -19,6 +19,66 @@ if (apiKey) {
   });
 }
 
+export const PRIMARY_MODEL = 'gemini-3.1-flash-lite';
+export const FALLBACK_MODEL = 'gemini-flash-latest';
+
+// Track quota cooldown per model
+const modelCooldowns: Record<string, number> = {};
+
+function isModelCoolingDown(model: string): boolean {
+  const until = modelCooldowns[model] || 0;
+  return Date.now() < until;
+}
+
+function setModelCooldown(model: string, ms = 180000): void {
+  modelCooldowns[model] = Date.now() + ms;
+}
+
+export async function callGeminiResilient(options: {
+  contents: any;
+  config?: any;
+}): Promise<{ text: string; modelUsed: string } | null> {
+  if (!aiClient || !apiKey) return null;
+
+  const candidateModels = [PRIMARY_MODEL, FALLBACK_MODEL];
+
+  for (const model of candidateModels) {
+    if (isModelCoolingDown(model)) {
+      continue;
+    }
+
+    try {
+      const response = await aiClient.models.generateContent({
+        model,
+        contents: options.contents,
+        config: options.config,
+      });
+
+      if (response && response.text) {
+        return { text: response.text, modelUsed: model };
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      const isQuotaError =
+        err?.status === 'RESOURCE_EXHAUSTED' ||
+        err?.code === 429 ||
+        errMsg.includes('429') ||
+        errMsg.includes('quota') ||
+        errMsg.includes('resource_exhausted') ||
+        errMsg.includes('RESOURCE_EXHAUSTED');
+
+      if (isQuotaError) {
+        console.warn(`[AI Orchestrator] Quota exhausted for ${model}. Entering cooldown. Trying alternative.`);
+        setModelCooldown(model, 180000); // 3 minutes cooldown
+      } else {
+        console.warn(`[AI Orchestrator] Model ${model} call failed: ${errMsg}`);
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * AI Orchestration Layer for CFC-2026
  * AI ASSISTS; HUMANS GOVERN.
@@ -33,9 +93,6 @@ export async function analyzeCitizenComplaint(params: {
   hasPhoto?: boolean;
   photoDataUrl?: string;
 }): Promise<AIProblemIntelligence> {
-  const correlationId = `AI-REQ-${Date.now()}`;
-  const modelName = 'gemini-3.8-flash';
-
   const defaultSuggestedDepts: Record<string, string> = {
     ROAD_INFRASTRUCTURE: 'Public Works Department (PWD - Roads & Highways)',
     WATER_SUPPLY: 'Municipal Water Supply & Drainage Board',
@@ -91,8 +148,7 @@ Return ONLY valid JSON matching schema:
         }
       }
 
-      const response = await aiClient.models.generateContent({
-        model: modelName,
+      const res = await callGeminiResilient({
         contents: contentsInput,
         config: {
           responseMimeType: 'application/json',
@@ -141,8 +197,8 @@ Return ONLY valid JSON matching schema:
         },
       });
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text.trim());
+      if (res && res.text) {
+        const parsed = JSON.parse(res.text.trim());
         return {
           intent: parsed.intent || 'PUBLIC_COMPLAINT',
           category: parsed.category || 'ROAD_INFRASTRUCTURE',
@@ -169,13 +225,13 @@ Return ONLY valid JSON matching schema:
             },
           ],
           confidence: 0.94,
-          modelUsed: `${modelName} (Gemini AI Developer API)`,
+          modelUsed: `${res.modelUsed} (Gemini AI Developer API)`,
           generatedAt: new Date().toISOString(),
           provenance: 'AI_ANALYSIS',
         };
       }
     } catch (err) {
-      console.warn(`[AI Orchestrator] Gemini call failed (${correlationId}), utilizing deterministic fallback:`, err);
+      console.warn(`[AI Orchestrator] analyzeCitizenComplaint fell back:`, err);
     }
   }
 
@@ -224,7 +280,7 @@ Return ONLY valid JSON matching schema:
       },
     ],
     confidence: 0.88,
-    modelUsed: `${modelName} (Civic Intelligence Engine Fallback)`,
+    modelUsed: `${PRIMARY_MODEL} (Civic Intelligence Engine Fallback)`,
     generatedAt: new Date().toISOString(),
     provenance: 'AI_ANALYSIS',
   };
@@ -244,9 +300,6 @@ export async function verifyContractorEvidence(params: {
   communityObservations?: string[];
   isReworkSubmission?: boolean;
 }): Promise<AIEvidenceVerification> {
-  const modelName = 'gemini-3.8-flash';
-  const correlationId = `AI-EVID-${Date.now()}`;
-
   if (aiClient && apiKey) {
     try {
       const prompt = `You are the Civic Quality & Evidence Verification Intelligence module for CFC-2026.
@@ -267,8 +320,7 @@ Return JSON with:
 - reasoning: analytical justification explaining any divergence
 - divergenceFlags: array of specific warning points (if any)`;
 
-      const response = await aiClient.models.generateContent({
-        model: modelName,
+      const res = await callGeminiResilient({
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -290,8 +342,8 @@ Return JSON with:
         },
       });
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text.trim());
+      if (res && res.text) {
+        const parsed = JSON.parse(res.text.trim());
         return {
           status: parsed.status,
           confidence: parsed.confidence || 0.92,
@@ -299,13 +351,13 @@ Return JSON with:
           observations: parsed.observations || [],
           reasoning: parsed.reasoning,
           divergenceFlags: parsed.divergenceFlags || [],
-          modelUsed: `${modelName} (Gemini AI Vision & Evidence Analyzer)`,
+          modelUsed: `${res.modelUsed} (Gemini AI Vision & Evidence Analyzer)`,
           analyzedAt: new Date().toISOString(),
           provenance: 'AI_ANALYSIS',
         };
       }
     } catch (err) {
-      console.warn(`[AI Orchestrator] Evidence verification Gemini call failed (${correlationId}):`, err);
+      console.warn(`[AI Orchestrator] Evidence verification fallback:`, err);
     }
   }
 
@@ -334,7 +386,7 @@ Return JSON with:
         'Shoulder compaction unfinished',
         'Contradiction with site community observation log',
       ],
-      modelUsed: `${modelName} (Civic Evidence Verifier Fallback)`,
+      modelUsed: `${PRIMARY_MODEL} (Civic Evidence Verifier Fallback)`,
       analyzedAt: new Date().toISOString(),
       provenance: 'AI_ANALYSIS',
     };
@@ -351,7 +403,7 @@ Return JSON with:
     ],
     reasoning: 'The physical cross-sectional imagery and geo-tagged progress reports satisfy the milestone acceptance criteria for human inspection review.',
     divergenceFlags: [],
-    modelUsed: `${modelName} (Civic Evidence Verifier Fallback)`,
+    modelUsed: `${PRIMARY_MODEL} (Civic Evidence Verifier Fallback)`,
     analyzedAt: new Date().toISOString(),
     provenance: 'AI_ANALYSIS',
   };
@@ -381,8 +433,6 @@ export async function analyzeNGOEvidence(params: {
   analyzedAt: string;
   disclaimer: string;
 }> {
-  const modelName = 'gemini-3.8-flash';
-  const correlationId = `AI-NGO-${Date.now()}`;
   const disclaimer = 'AI Analysis: Advisory only. AI cannot sanction, approve, or reject civil work claims. Consequential decisions are reserved exclusively for authorized Government Officials.';
 
   if (aiClient && apiKey) {
@@ -403,8 +453,7 @@ Return valid JSON matching:
 - integrityRating: "HIGH_INTEGRITY" | "MINOR_ISSUES" | "SEVERE_DISCREPANCY"
 - confidence: number between 0.0 and 1.0`;
 
-      const response = await aiClient.models.generateContent({
-        model: modelName,
+      const res = await callGeminiResilient({
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -424,20 +473,20 @@ Return valid JSON matching:
         },
       });
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text.trim());
+      if (res && res.text) {
+        const parsed = JSON.parse(res.text.trim());
         return {
           summary: parsed.summary,
           divergenceFlags: parsed.divergenceFlags || [],
           integrityRating: parsed.integrityRating || params.groundTruthRating || 'MINOR_ISSUES',
           confidence: parsed.confidence || 0.94,
-          modelUsed: `${modelName} (Gemini AI Vision & Evidence Analyzer)`,
+          modelUsed: `${res.modelUsed} (Gemini AI Vision & Evidence Analyzer)`,
           analyzedAt: new Date().toISOString(),
           disclaimer,
         };
       }
     } catch (err) {
-      console.warn(`[AI Orchestrator] NGO evidence analysis Gemini call failed (${correlationId}):`, err);
+      console.warn(`[AI Orchestrator] NGO evidence analysis fallback:`, err);
     }
   }
 
@@ -459,7 +508,7 @@ Return valid JSON matching:
       ],
       integrityRating: 'SEVERE_DISCREPANCY',
       confidence: 0.93,
-      modelUsed: `${modelName} (Civic Evidence Verifier Fallback)`,
+      modelUsed: `${PRIMARY_MODEL} (Civic Evidence Verifier Fallback)`,
       analyzedAt: new Date().toISOString(),
       disclaimer,
     };
@@ -470,7 +519,7 @@ Return valid JSON matching:
     divergenceFlags: [],
     integrityRating: params.groundTruthRating || 'HIGH_INTEGRITY',
     confidence: 0.95,
-    modelUsed: `${modelName} (Civic Evidence Verifier Fallback)`,
+    modelUsed: `${PRIMARY_MODEL} (Civic Evidence Verifier Fallback)`,
     analyzedAt: new Date().toISOString(),
     disclaimer,
   };
@@ -495,8 +544,6 @@ export async function queryPolicymakerIntelligence(params: {
   modelUsed: string;
   disclaimer: string;
 }> {
-  const modelName = 'gemini-3.8-flash';
-  const correlationId = `AI-POLICY-${Date.now()}`;
   const disclaimer =
     'AI Policy Intelligence: Advisory decision-support synthesis only. AI cannot make binding policy, allocation, or legal determinations. Authoritative decisions remain with authorized human policymakers.';
 
@@ -525,8 +572,7 @@ Return valid JSON with:
 - citedProjects: array of project IDs cited (e.g., ["PRJ-DEMO-001", "PRJ-DEMO-002"])
 - confidence: number between 0.0 and 1.0`;
 
-      const response = await aiClient.models.generateContent({
-        model: modelName,
+      const res = await callGeminiResilient({
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -544,20 +590,20 @@ Return valid JSON with:
         },
       });
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text.trim());
+      if (res && res.text) {
+        const parsed = JSON.parse(res.text.trim());
         return {
           answer: parsed.answer,
           keyInsights: parsed.keyInsights || [],
           recommendedActions: parsed.recommendedActions || [],
           citedProjects: parsed.citedProjects || [],
           confidence: parsed.confidence || 0.94,
-          modelUsed: `${modelName} (State Infrastructure Strategic Synthesis)`,
+          modelUsed: `${res.modelUsed} (State Infrastructure Strategic Synthesis)`,
           disclaimer,
         };
       }
     } catch (err) {
-      console.warn(`[AI Orchestrator] Policymaker intelligence query Gemini call failed (${correlationId}):`, err);
+      console.warn(`[AI Orchestrator] Policymaker intelligence query fallback:`, err);
     }
   }
 
@@ -579,7 +625,7 @@ Return valid JSON with:
       ],
       citedProjects: ['PRJ-DEMO-002'],
       confidence: 0.96,
-      modelUsed: `${modelName} (Strategic Decision Engine Fallback)`,
+      modelUsed: `${PRIMARY_MODEL} (Strategic Decision Engine Fallback)`,
       disclaimer,
     };
   }
@@ -599,7 +645,7 @@ Return valid JSON with:
       ],
       citedProjects: ['PRJ-DEMO-001', 'PRJ-DEMO-002', 'PRJ-DEMO-003'],
       confidence: 0.95,
-      modelUsed: `${modelName} (Strategic Decision Engine Fallback)`,
+      modelUsed: `${PRIMARY_MODEL} (Strategic Decision Engine Fallback)`,
       disclaimer,
     };
   }
@@ -619,7 +665,7 @@ Return valid JSON with:
       ],
       citedProjects: [],
       confidence: 0.94,
-      modelUsed: `${modelName} (Strategic Decision Engine Fallback)`,
+      modelUsed: `${PRIMARY_MODEL} (Strategic Decision Engine Fallback)`,
       disclaimer,
     };
   }
@@ -638,7 +684,7 @@ Return valid JSON with:
     ],
     citedProjects: [],
     confidence: 0.93,
-    modelUsed: `${modelName} (Strategic Decision Engine Fallback)`,
+    modelUsed: `${PRIMARY_MODEL} (Strategic Decision Engine Fallback)`,
     disclaimer,
   };
 }
@@ -662,7 +708,6 @@ export async function queryCivicAssistant(params: {
   actions: Array<{ label: string; target: string }>;
   modelUsed: string;
 }> {
-  const modelName = 'gemini-3.8-flash';
   const displayLanguage = params.assistantLanguage || params.selectedLanguage || 'en';
 
   const knowledgeBase = `
@@ -732,8 +777,7 @@ Respond in JSON with:
 - text: your answer in "${displayLanguage}"
 - actions: array of suggested navigation actions to display as buttons. Each action has "label" (text to show on the button in "${displayLanguage}") and "target" (one of the exact uppercase targets above, or empty string). Limit to max 2 actions. Format label beautifully based on the target (e.g. "ரிப்போர்ட் செய்யவும்" / "Report an Issue").`;
 
-      const response = await aiClient.models.generateContent({
-        model: modelName,
+      const res = await callGeminiResilient({
         contents: [...historyParts, { role: 'user', parts: [{ text: prompt }] }],
         config: {
           responseMimeType: 'application/json',
@@ -758,16 +802,16 @@ Respond in JSON with:
         }
       });
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text.trim());
+      if (res && res.text) {
+        const parsed = JSON.parse(res.text.trim());
         return {
           text: parsed.text,
           actions: parsed.actions || [],
-          modelUsed: `${modelName} (Gemini AI Global Assistant)`
+          modelUsed: `${res.modelUsed} (Gemini AI Global Assistant)`
         };
       }
     } catch (err) {
-      console.warn(`[AI Orchestrator] Global assistant Gemini call failed, utilizing fallback:`, err);
+      console.warn(`[AI Orchestrator] Global assistant fallback:`, err);
     }
   }
 
@@ -971,13 +1015,9 @@ Respond in JSON with:
   return {
     text,
     actions,
-    modelUsed: `${modelName} (Civic Assistant Fallback Heuristics)`
+    modelUsed: `${PRIMARY_MODEL} (Civic Assistant Fallback Heuristics)`
   };
 }
-
-// Quota backoff state to protect against 429 Resource Exhausted rate limits
-let quotaCooldownUntil = 0;
-const QUOTA_COOLDOWN_MS = 60000;
 
 /**
  * Translates user text dynamically to a target language.
@@ -986,15 +1026,8 @@ export async function translateText(params: {
   text: string;
   targetLanguage: string;
 }): Promise<string> {
-  const modelName = 'gemini-3.8-flash';
   if (!params.text.trim()) return '';
   if (params.targetLanguage === 'en' || !params.targetLanguage) return params.text;
-
-  // If we recently hit a 429 quota exhaustion, gracefully fall back to original text until cooldown expires
-  const now = Date.now();
-  if (now < quotaCooldownUntil) {
-    return params.text;
-  }
 
   if (aiClient && apiKey) {
     try {
@@ -1011,22 +1044,15 @@ STRICT INSTRUCTIONS:
 Original Text:
 "${params.text}"`;
 
-      const response = await aiClient.models.generateContent({
-        model: modelName,
+      const res = await callGeminiResilient({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
       });
 
-      if (response.text) {
-        return response.text.trim();
+      if (res && res.text) {
+        return res.text.trim();
       }
     } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      if (err?.status === 'RESOURCE_EXHAUSTED' || err?.code === 429 || errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
-        quotaCooldownUntil = Date.now() + QUOTA_COOLDOWN_MS;
-        console.warn(`[AI Translation] Rate limit reached (429/quota). Cooling down AI translation requests for ${QUOTA_COOLDOWN_MS / 1000}s. Serving original text.`);
-      } else {
-        console.warn(`[AI Translation] Translation failed for text:`, errMsg);
-      }
+      console.warn(`[AI Translation] Translation failed for text:`, err?.message || err);
     }
   }
 
