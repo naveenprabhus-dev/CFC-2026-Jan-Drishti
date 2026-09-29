@@ -538,7 +538,7 @@ export const NGOWorkspace: React.FC<NGOWorkspaceProps> = ({ onOpenProject }) => 
                         {task.location?.address || 'Site Area'}
                       </p>
                       <p className="text-slate-500 text-[11px] font-mono">
-                        {task.location?.district}, Tamil Nadu • ({task.location?.lat || '13.0067'}, {task.location?.lng || '80.2575'})
+                        {task.location?.district || 'Location Unspecified'}{task.location?.state ? `, ${task.location.state}` : ''}{(task.location?.lat && task.location?.lng) ? ` • (${task.location.lat}, ${task.location.lng})` : ''}
                       </p>
                     </div>
 
@@ -973,24 +973,7 @@ export const NGOWorkspace: React.FC<NGOWorkspaceProps> = ({ onOpenProject }) => 
                   label="Independent Field Audit Photo Evidence"
                   currentPhotoUrl={evidencePhotoUrl}
                   onChangePhotoUrl={(url) => setEvidencePhotoUrl(url)}
-                  presets={[
-                    {
-                      id: 'ngo-p1',
-                      label: 'Ground Excavation & Barricade Check',
-                      url: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f9?w=800&auto=format&fit=crop&q=80',
-                    },
-                    {
-                      id: 'ngo-p2',
-                      label: 'Culvert Outfall Flow Inspection',
-                      url: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=800&auto=format&fit=crop&q=80',
-                    },
-                    {
-                      id: 'ngo-p3',
-                      label: 'Finished Bitumen Surface Layer',
-                      url: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800&auto=format&fit=crop&q=80',
-                    },
-                  ]}
-                  helpText="Upload actual field inspection photograph from mobile camera or select a preset."
+                  helpText="Upload actual field inspection photograph from mobile camera or file."
                 />
 
                 <div>
@@ -1487,7 +1470,7 @@ export const NGOWorkspace: React.FC<NGOWorkspaceProps> = ({ onOpenProject }) => 
                   Jurisdiction & Coverage
                 </span>
                 <p className="text-slate-700 leading-relaxed">
-                  Central Chennai Infrastructure Circle • Public Works Department Highways Division • Ward 14 Municipal Roadways & Arterial Corridors.
+                  {currentUser?.jurisdiction || `${currentUser?.homeDistrict || 'Regional'} Infrastructure Circle • Public Works Department Highways Division`}
                 </p>
               </div>
 

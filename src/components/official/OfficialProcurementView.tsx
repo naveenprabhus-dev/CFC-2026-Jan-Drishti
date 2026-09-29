@@ -12,6 +12,7 @@ import {
   Calendar,
   Layers,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 
 interface OfficialProcurementViewProps {
@@ -39,7 +40,7 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
             <ProvenanceBadge type="OFFICIAL_DECISION" />
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Transparent public work contract tendering and PWD Class-1 enlistment compliance
+            Transparent public work contract tendering, competitive quote evaluation, and automated AI bid screening
           </p>
         </div>
       </div>
@@ -48,6 +49,7 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects.map((p) => {
           const isAssigned = !!p.contractorId;
+          const isTendered = p.status === 'TENDERED';
 
           return (
             <div
@@ -58,13 +60,15 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
                   <span className="font-mono font-black text-xs text-slate-900">{p.id}</span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                       isAssigned
                         ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : isTendered
+                        ? 'bg-purple-100 text-purple-800 border-purple-300 animate-pulse'
                         : 'bg-amber-100 text-amber-800 border-amber-300'
                     }`}
                   >
-                    {isAssigned ? 'TENDER AWARDED' : 'AWAITING CONTRACTOR'}
+                    {isAssigned ? 'TENDER AWARDED' : isTendered ? 'BIDDING ACTIVE (AI ACTIVE)' : 'AWAITING TENDER'}
                   </span>
                 </div>
 
@@ -73,14 +77,23 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
 
                 <div className="mt-4 p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-1.5 text-xs">
                   <div className="flex items-center justify-between text-slate-600">
-                    <span>Sanction Ceiling:</span>
+                    <span>Sanction ceiling:</span>
                     <strong className="font-mono text-slate-900">
-                      ₹{((p.funding?.sanctioned || 0) / 100000).toFixed(2)} Lakhs
+                      ₹{((p.funding?.sanctioned || p.funding?.allocated || 0) / 100000).toFixed(2)} Lakhs
                     </strong>
                   </div>
 
+                  {isAssigned && (
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Awarded Bid Price:</span>
+                      <strong className="font-mono text-emerald-800">
+                        ₹{((p.funding?.contracted || 0) / 100000).toFixed(2)} Lakhs
+                      </strong>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-slate-600">
-                    <span>Assigned Contractor:</span>
+                    <span>Selected Contractor:</span>
                     <strong className="text-amber-800 truncate max-w-[140px]">
                       {p.contractorName || 'Not Assigned'}
                     </strong>
@@ -98,18 +111,29 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
                 </button>
 
                 {!isAssigned ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenAssignContractor(p)}
-                    className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                  >
-                    <HardHat className="w-3.5 h-3.5" />
-                    <span>Assign Contractor</span>
-                  </button>
+                  isTendered ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAssignContractor(p)}
+                      className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Review Quotes ({p.tender?.id ? 'AI Screening Ready' : 'Evaluate'})</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAssignContractor(p)}
+                      className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    >
+                      <HardHat className="w-3.5 h-3.5" />
+                      <span>Launch Tender</span>
+                    </button>
+                  )
                 ) : (
                   <span className="text-[11px] text-emerald-700 font-bold flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Tender Active</span>
+                    <span>Contract Signed</span>
                   </span>
                 )}
               </div>

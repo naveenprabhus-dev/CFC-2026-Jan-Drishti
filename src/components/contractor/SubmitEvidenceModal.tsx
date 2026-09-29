@@ -27,30 +27,6 @@ interface SubmitEvidenceModalProps {
   onSuccess: (evidence: ContractorEvidence) => void;
 }
 
-const SAMPLE_PHOTO_PRESETS = [
-  {
-    id: 'p1',
-    label: 'Compliant Execution (Dense Bituminous Macadam layer with roller pass)',
-    url: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
-    caption: '75mm DBM layer compacted with 10-ton vibratory roller. Core density test passed (98.2% IRC compliance).',
-    category: 'Structural Layer',
-  },
-  {
-    id: 'p2',
-    label: 'Concrete & Drainage Finishing (Precast reinforced stormwater slabs)',
-    url: 'https://images.unsplash.com/photo-1590381105924-c72589b9ef3f?w=600&auto=format&fit=crop&q=80',
-    caption: 'M30 grade concrete kerb channels and stormwater box culvert precast units installed to specification.',
-    category: 'Drainage & Kerbs',
-  },
-  {
-    id: 'p3',
-    label: 'Uncompacted / Discrepancy Sample (Loose gravel subgrade)',
-    url: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=600&auto=format&fit=crop&q=80',
-    caption: 'Loose aggregate subgrade dumped without prime coat or bitumen wearing layer.',
-    category: 'Sub-base Sample',
-  },
-];
-
 export const SubmitEvidenceModal: React.FC<SubmitEvidenceModalProps> = ({
   project,
   milestone,
@@ -61,18 +37,94 @@ export const SubmitEvidenceModal: React.FC<SubmitEvidenceModalProps> = ({
   const [claimedProgress, setClaimedProgress] = useState(
     isRework ? 100 : milestone.completionPercentageClaimed > 0 ? milestone.completionPercentageClaimed : 85
   );
-  const [description, setDescription] = useState(
-    isRework
-      ? 'REWORK RECTIFICATION COMPLETED: Remobilized 10-ton tandem vibratory roller. Excavated loose sub-base, compacted 150mm WMM base to 98.4% Proctor density, and laid 50mm Bituminous Concrete wearing layer with precast storm drain slabs per PWD Notice.'
-      : `Completed milestone execution for Phase ${milestone.sequence}: ${milestone.title}. Laid structural material according to IRC-37 standards, completed core cutter density testing, and cleared roadway corridor.`
-  );
-  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(isRework ? 0 : 0);
+  const [description, setDescription] = useState('');
   const [customPhotoUrl, setCustomPhotoUrl] = useState('');
-  const [useCustomPhoto, setUseCustomPhoto] = useState(false);
-  const [gpsVerified, setGpsVerified] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [submittedResult, setSubmittedResult] = useState<ContractorEvidence | null>(null);
+
+  // Determine project category dynamically to match evidence requirements exactly
+  const deptLower = (project.department || '').toLowerCase();
+  const nameLower = (project.name || '').toLowerCase();
+  const scopeLower = (project.scopeOfWork || '').toLowerCase();
+
+  let category: 'LIGHTING' | 'ROAD' | 'DRAINAGE' | 'WATER_SUPPLY' = 'ROAD';
+  if (
+    deptLower.includes('light') ||
+    deptLower.includes('electr') ||
+    nameLower.includes('light') ||
+    scopeLower.includes('light') ||
+    nameLower.includes('lamp')
+  ) {
+    category = 'LIGHTING';
+  } else if (
+    deptLower.includes('drain') ||
+    deptLower.includes('sanitat') ||
+    deptLower.includes('sewer') ||
+    nameLower.includes('drain') ||
+    scopeLower.includes('drain') ||
+    nameLower.includes('culvert') ||
+    scopeLower.includes('culvert')
+  ) {
+    category = 'DRAINAGE';
+  } else if (
+    deptLower.includes('water') ||
+    nameLower.includes('water') ||
+    scopeLower.includes('water') ||
+    nameLower.includes('pipe') ||
+    scopeLower.includes('pipe')
+  ) {
+    category = 'WATER_SUPPLY';
+  }
+
+  let checklistItems: string[] = [];
+  let descriptionLabel = "Technical Execution Description & Test Results *";
+  let descriptionHelp = "Include material density, batch specs, IRC standards";
+  let descriptionPlaceholder = "Describe works executed, machinery deployed, and compliance test results...";
+  let aiAdvisory = "Upon submission, the Gemini vision model will evaluate the cross-section layer thickness, aggregate compaction, and IRC standard adherence. Official certification remains exclusively with the PWD Engineer.";
+
+  if (category === 'LIGHTING') {
+    checklistItems = [
+      "Photographic evidence of illuminated street lamp/fixture in active operating state (Night/Under-test).",
+      "Lux meter readings showing minimum prescribed average illuminance (lux levels).",
+      "Electrical continuity & earth resistance safety certificate signed by certified wireman.",
+      "Luminaire batch specifications and manufacturer warranty certificate."
+    ];
+    descriptionLabel = "Electrical Repair & Luminaire Installation Details *";
+    descriptionHelp = "Include luminaire wattage, cable testing, earth insulation specs";
+    descriptionPlaceholder = "Describe physical repairs made, luminaire specifications installed, wire connections secured, and functional testing results...";
+    aiAdvisory = "Upon submission, the Gemini vision model will evaluate the luminaire mounting alignment, active illumination state, and lux sensor patterns. No road compaction tests are required.";
+  } else if (category === 'DRAINAGE') {
+    checklistItems = [
+      "Photographic evidence of cleaned, desilted, or rebuilt drainage/culvert channel.",
+      "Hydraulic test report certifying free flow and lack of obstruction.",
+      "Silt removal quantity measurement sheet and dump-site disposal receipt.",
+      "Structural masonry/RCC compressive strength certificate (for rebuilt walls)."
+    ];
+    descriptionLabel = "Drainage Desilting & Structural Restoration Details *";
+    descriptionHelp = "Include desilt cubic capacity, structural masonry grade, wall thickness";
+    descriptionPlaceholder = "Describe desilting quantity removed, masonry repairs done, and hydraulic flow capacity verified...";
+    aiAdvisory = "Upon submission, the Gemini vision model will evaluate desilted channel clearance, structural masonry alignment, and free-flowing water signals. No road-compaction test criteria will apply.";
+  } else if (category === 'WATER_SUPPLY') {
+    checklistItems = [
+      "Photographic evidence of repaired pipeline section before backfilling, showing couplers.",
+      "Hydrostatic pressure test report (certified at 1.5x working pressure for 2 hours).",
+      "Pipe thickness, class (e.g., Class 6 PVC/DI), and joint alignment sheet.",
+      "Disinfection, chlorination, and water quality clearance certificate."
+    ];
+    descriptionLabel = "Water Pipeline Remediation & Hydrostatic Test Details *";
+    descriptionHelp = "Include pipeline class/material, hydrostatic pressure (PSI), disinfection records";
+    descriptionPlaceholder = "Describe pipeline leak remediation, pressure test results (PSI), joint alignment, and site disinfection...";
+    aiAdvisory = "Upon submission, the Gemini vision model will verify joint alignment, high-pressure coupling seals, and water-disinfection clearance. No asphalt compaction tests are required.";
+  } else {
+    // ROAD
+    checklistItems = [
+      "Photographic evidence of completed road section with clear wearing course compaction.",
+      "Core cutter compaction density test report signed by third-party lab.",
+      "CAMBER and cross-section irregularity checks against IRC:SP:11 standards.",
+      "Asphalt/Bituminous concrete batch mix plant delivery slip."
+    ];
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,33 +133,29 @@ export const SubmitEvidenceModal: React.FC<SubmitEvidenceModalProps> = ({
       return;
     }
 
+    if (!customPhotoUrl.trim()) {
+      setErrorMsg('Please upload on-site photographic evidence before submitting.');
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg('');
 
     try {
-      const activePhoto = useCustomPhoto && customPhotoUrl.trim()
-        ? {
-            url: customPhotoUrl.trim(),
-            caption: 'Contractor uploaded on-site construction photo.',
-          }
-        : SAMPLE_PHOTO_PRESETS[selectedPhotoIdx];
-
       const evidence = await apiClient.submitEvidence({
         projectId: project.id,
         milestoneId: milestone.id,
-        description,
+        description: description.trim(),
         claimedProgress: Number(claimedProgress),
         mediaRefs: [
           {
             type: 'photo',
-            url: activePhoto.url,
-            caption: activePhoto.caption,
+            url: customPhotoUrl.trim(),
+            caption: 'Contractor uploaded on-site construction photo.',
           },
         ],
         location: {
-          label: `${project.district} Construction Site (GPS: 13.0827° N, 80.2707° E)`,
-          lat: 13.0827,
-          lng: 80.2707,
+          label: `${project.district || 'Worksite'} Construction Site`,
         },
         isRework,
       });
@@ -300,18 +348,40 @@ export const SubmitEvidenceModal: React.FC<SubmitEvidenceModalProps> = ({
               </div>
             </div>
 
+            {/* Checklist items based on category */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <span className="block text-xs font-bold text-slate-800 mb-2 uppercase tracking-wide">
+                Required Civil Engineering Submissions Checklist
+              </span>
+              <div className="space-y-2">
+                {checklistItems.map((item, idx) => (
+                  <label key={idx} className="flex items-start gap-2.5 text-xs text-slate-700 select-none cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      required
+                    />
+                    <span className="leading-tight">{item}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2 font-medium">
+                * Note: All checklist items must be physically verified and checked in order to submit execution progress.
+              </p>
+            </div>
+
             {/* Technical Description */}
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
-                <span>Technical Execution Description & Test Results *</span>
-                <span className="text-[10px] font-normal text-slate-500">Include material density, batch specs, IRC standards</span>
+                <span>{descriptionLabel}</span>
+                <span className="text-[10px] font-normal text-slate-500">{descriptionHelp}</span>
               </label>
               <textarea
                 rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full text-xs p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-amber-500 focus:outline-hidden bg-white text-slate-900 leading-relaxed font-sans"
-                placeholder="Describe works executed, machinery deployed, and compliance test results..."
+                placeholder={descriptionPlaceholder}
                 required
               />
             </div>
@@ -319,13 +389,9 @@ export const SubmitEvidenceModal: React.FC<SubmitEvidenceModalProps> = ({
             {/* Photo / Video Evidence Picker */}
             <PhotoUploadPicker
               label="Site Photographic Evidence"
-              currentPhotoUrl={useCustomPhoto ? customPhotoUrl : SAMPLE_PHOTO_PRESETS[selectedPhotoIdx].url}
-              onChangePhotoUrl={(url, isCustom) => {
-                setCustomPhotoUrl(url);
-                setUseCustomPhoto(isCustom);
-              }}
-              presets={SAMPLE_PHOTO_PRESETS}
-              helpText="Upload actual site photograph from your device or select from field presets."
+              currentPhotoUrl={customPhotoUrl}
+              onChangePhotoUrl={(url) => setCustomPhotoUrl(url)}
+              helpText="Upload actual site photograph from your device camera or file."
             />
 
             {/* Geolocation & Timestamp Anchor */}
@@ -333,9 +399,9 @@ export const SubmitEvidenceModal: React.FC<SubmitEvidenceModalProps> = ({
               <div className="flex items-center gap-2 text-slate-700">
                 <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
                 <div>
-                  <span className="font-bold block text-[11px] text-slate-900">Worksite Geolocation Anchor</span>
+                  <span className="font-bold block text-[11px] text-slate-900">Worksite Location Anchor</span>
                   <span className="text-[10px] text-slate-500 font-mono">
-                    {project.district} Construction Site (13.0827° N, 80.2707° E)
+                    {project.district || 'Worksite'} Construction Location
                   </span>
                 </div>
               </div>
@@ -352,7 +418,7 @@ export const SubmitEvidenceModal: React.FC<SubmitEvidenceModalProps> = ({
               <div>
                 <span className="font-bold text-[11px] block">AI Visual Inspection Analysis:</span>
                 <p className="text-[10px] text-purple-800 leading-relaxed mt-0.5">
-                  Upon submission, the Gemini vision model will evaluate the cross-section layer thickness, aggregate compaction, and IRC standard adherence. Official certification remains exclusively with the PWD Engineer.
+                  {aiAdvisory}
                 </p>
               </div>
             </div>

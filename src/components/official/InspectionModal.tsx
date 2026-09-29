@@ -56,18 +56,10 @@ export const InspectionModal: React.FC<InspectionModalProps> = ({
           submittedByName: project.contractorName || 'Assigned PWD Contractor',
           submittedAt: activeMilestone.completedDate || new Date().toISOString(),
           description: `Contractor site execution photographic verification for milestone ${activeMilestone.sequence}: ${activeMilestone.title}. Core thickness and compaction standards complied per IRC specifications.`,
-          mediaRefs: [
-            {
-              type: 'photo',
-              url: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
-              caption: `On-site execution cross-section photograph for ${activeMilestone.title}.`,
-            },
-          ],
+          mediaRefs: project.evidence?.[0] ? project.evidence[0].mediaRefs : [],
           claimedProgress: activeMilestone.completionPercentageClaimed || 100,
           location: {
-            lat: 13.0827,
-            lng: 80.2707,
-            label: `${project.district} Construction Site`,
+            label: `${project.district || 'Worksite'} Construction Location`,
           },
           status: activeMilestone.status === 'VERIFIED' ? 'VERIFIED' : 'SUBMITTED',
           provenance: 'CONTRACTOR_SUBMISSION',
@@ -396,9 +388,9 @@ export const InspectionModal: React.FC<InspectionModalProps> = ({
                     className="accent-emerald-600 mt-0.5"
                   />
                   <div>
-                    <p className="text-xs font-bold">{t('approveMilestoneBtn') || 'Approve & Verify Milestone'}</p>
+                    <p className="text-xs font-bold">Acceptable / Field Inspection Satisfactory</p>
                     <p className="text-[10px] text-slate-500">
-                      Clears milestone to VERIFIED; unlocks next phase execution
+                      Records satisfactory human field inspection findings and test logs
                     </p>
                   </div>
                 </label>
@@ -469,8 +461,8 @@ export const InspectionModal: React.FC<InspectionModalProps> = ({
                     <ShieldCheck className="w-4 h-4" />
                     <span>
                       {decision === 'APPROVED'
-                        ? `${t('approveMilestoneBtn') || 'Certify & Approve'} Milestone ${activeMilestone.sequence}`
-                        : `${t('mandateReworkBtn') || 'Issue Mandatory Rework'} Milestone ${activeMilestone.sequence}`}
+                        ? `Record Inspection Findings for Milestone ${activeMilestone.sequence}`
+                        : `Issue Mandatory Rework for Milestone ${activeMilestone.sequence}`}
                     </span>
                   </>
                 )}

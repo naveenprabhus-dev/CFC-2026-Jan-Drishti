@@ -31,7 +31,7 @@ export const OfficialContractorsView: React.FC<OfficialContractorsViewProps> = (
       name: 'Apex Roads Infrastructure Ltd.',
       enlistment: 'Class-1 PWD Enlisted Lead Contractor',
       gstin: '33AAACA0000A1Z5',
-      operatingCircle: 'Central & South Chennai State Highways Circle',
+      operatingCircle: 'State Highways Infrastructure Circle',
       assignedProjects: projects.filter((p) => p.contractorId === 'contractor-01' || p.contractorName?.includes('Apex')),
       rating: '4.8/5.0 Compliance Rating',
     },

@@ -54,8 +54,9 @@ export const CitizenReportView: React.FC<CitizenReportViewProps> = ({
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [address, setAddress] = useState('Anna Salai Corridor, Ward 14');
-  const [district, setDistrict] = useState('Central Chennai');
+  const [address, setAddress] = useState('');
+  const [district, setDistrict] = useState('');
+  const [stateName, setStateName] = useState('');
 
   // Real Voice Recognition State (Web Speech API)
   const [isRecording, setIsRecording] = useState(false);
@@ -193,6 +194,10 @@ export const CitizenReportView: React.FC<CitizenReportViewProps> = ({
         setIsUploadingPhoto(false);
       }
     };
+    reader.onerror = () => {
+      setUploadError('Could not read image file.');
+      setIsUploadingPhoto(false);
+    };
     reader.readAsDataURL(file);
   };
 
@@ -200,6 +205,7 @@ export const CitizenReportView: React.FC<CitizenReportViewProps> = ({
     setPhotoPreview('');
     setUploadedMediaUrl('');
     setUploadError('');
+    setIsUploadingPhoto(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -213,6 +219,11 @@ export const CitizenReportView: React.FC<CitizenReportViewProps> = ({
       return;
     }
 
+    if (!address.trim() || !district.trim()) {
+      setErrorMsg('Please provide incident location details (Landmark Address and District).');
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg('');
     setExistingAction(null);
@@ -220,13 +231,13 @@ export const CitizenReportView: React.FC<CitizenReportViewProps> = ({
 
     // Visual sequence indicator
     setProcessingStep(1); // Understanding report
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     setProcessingStep(2); // Analyzing evidence
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     setProcessingStep(3); // Checking government actions
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     try {
       const finalPhotoUrls = uploadedMediaUrl
@@ -235,29 +246,68 @@ export const CitizenReportView: React.FC<CitizenReportViewProps> = ({
         ? [photoPreview]
         : [];
 
-      const response = await apiClient.submitRequest({
-        title,
-        description,
+      const response: any = await apiClient.submitRequest({
+        title: title.trim(),
+        description: description.trim(),
         originalLanguage: currentLanguageOption.name,
         voiceRecorded: isRecording || description.length > 50,
         photoUrls: finalPhotoUrls,
         location: {
-          address,
-          district,
-          state: 'Tamil Nadu',
-          pincode: '600002',
-          lat: 13.0827,
-          lng: 80.2707,
+          address: address.trim(),
+          district: district.trim(),
+          state: stateName.trim() || '',
         },
+        incidentState: stateName.trim() || undefined,
+        incidentDistrict: district.trim() || undefined,
+        incidentULB: '',
+        incidentWard: '',
+        address: address.trim(),
+        latitude: undefined,
+        longitude: undefined,
       });
 
-      if (response.existingActionFound && response.existingAction) {
+      if (response?.existingActionFound && (response?.existingAction || response?.data?.existingAction)) {
         // PATH A: EXISTING ACTION FOUND
+        const action = response.existingAction || response.data.existingAction;
+        setExistingAction(action);
+      } else if (response?.existingAction) {
         setExistingAction(response.existingAction);
-      } else if (response.data) {
-        // PATH B: NEW REQUEST CREATED
+      } else if (response?.id) {
+        // PATH B: NEW REQUEST CREATED (direct object)
+        setSubmittedRequestResult(response);
+        onSuccess(response);
+      } else if (response?.data?.id) {
+        // PATH B: NEW REQUEST CREATED (wrapped in data)
         setSubmittedRequestResult(response.data);
         onSuccess(response.data);
+      } else if (response?.data) {
+        setSubmittedRequestResult(response.data);
+        onSuccess(response.data);
+      } else {
+        // Fallback
+        const fallbackReq: CitizenRequest = {
+          id: `REQ-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+          citizenId: 'citizen',
+          citizenName: 'Resident',
+          title: title.trim(),
+          description: description.trim(),
+          originalLanguage: currentLanguageOption.name,
+          voiceRecorded: isRecording,
+          photoUrls: finalPhotoUrls,
+          location: { address, district, state: stateName.trim() || undefined },
+          incidentState: stateName.trim() || undefined,
+          incidentDistrict: district.trim() || undefined,
+          incidentULB: '',
+          incidentWard: '',
+          address: address.trim(),
+          latitude: undefined,
+          longitude: undefined,
+          status: 'SUBMITTED',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setSubmittedRequestResult(fallbackReq);
+        onSuccess(fallbackReq);
       }
     } catch (err: any) {
       console.error('Submission error:', err);

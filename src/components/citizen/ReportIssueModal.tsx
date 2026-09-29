@@ -30,27 +30,6 @@ const LANGUAGES = [
   { code: 'kn', name: 'Kannada (ಕನ್ನಡ)' },
 ];
 
-const PRESETS = [
-  {
-    title: 'Severe crater potholes on main arterial road near metro junction',
-    desc: 'Multiple deep potholes spanning 200m near metro pillar causing frequent two-wheeler skids and acute traffic slowdown.',
-    location: 'Anna Salai Arterial Junction, Central Chennai',
-    district: 'Central Chennai',
-  },
-  {
-    title: 'Damaged pavement and incomplete road widening causing waterlogging',
-    desc: 'Road widening was left halfway with raw dumped stones and open side drainage trenches. Rain water is pooling outside school entrance.',
-    location: 'Gandhi Nagar Main Road, Sector 3, Opposite Primary School',
-    district: 'Central Chennai',
-  },
-  {
-    title: 'Cracked bridge culvert with soil erosion on link corridor',
-    desc: 'Heavy monsoon flow has eroded the bridge wing wall. Visible structural fissure across the culvert slab risking collapse.',
-    location: 'Tambaram-Velachery Link Road, Km 14/2',
-    district: 'South Chennai',
-  },
-];
-
 export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
   onClose,
   onSuccess,
@@ -58,13 +37,11 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('English (English)');
-  const [address, setAddress] = useState('Anna Salai Corridor, Ward 14');
-  const [district, setDistrict] = useState('Central Chennai');
+  const [address, setAddress] = useState('');
+  const [district, setDistrict] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [voiceRecorded, setVoiceRecorded] = useState(false);
-  const [photoUrl, setPhotoUrl] = useState(
-    'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=600&auto=format&fit=crop&q=80'
-  );
+  const [photoUrl, setPhotoUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -76,20 +53,13 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
         setVoiceRecorded(true);
         if (!description) {
           setDescription(
-            'Voice transcript: Road surface near junction is heavily degraded with sharp craters causing severe accidents for commuters.'
+            'Voice transcript: Infrastructure issue observed near location requiring urgent public works attention.'
           );
         }
       }, 2500);
     } else {
       setIsRecording(false);
     }
-  };
-
-  const handlePresetSelect = (preset: typeof PRESETS[0]) => {
-    setTitle(preset.title);
-    setDescription(preset.desc);
-    setAddress(preset.location);
-    setDistrict(preset.district);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -99,28 +69,38 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
       return;
     }
 
+    if (!address.trim() || !district.trim()) {
+      setErrorMsg('Please provide incident location details (Landmark Address and District).');
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg('');
 
     try {
-      const result = await apiClient.submitRequest({
-        title,
-        description,
+      const result: any = await apiClient.submitRequest({
+        title: title.trim(),
+        description: description.trim(),
         originalLanguage: language,
         voiceRecorded,
         photoUrls: photoUrl ? [photoUrl] : [],
         location: {
-          address,
-          district,
-          state: 'Tamil Nadu',
-          pincode: '600002',
-          lat: 13.0827,
-          lng: 80.2707,
+          address: address.trim(),
+          district: district.trim(),
+          state: '',
         },
+        incidentState: '',
+        incidentDistrict: district.trim(),
+        incidentULB: '',
+        incidentWard: '',
+        address: address.trim(),
+        latitude: undefined,
+        longitude: undefined,
       });
 
-      if (result.data) {
-        onSuccess(result.data);
+      const createdReq = result?.data || (result?.id ? result : null);
+      if (createdReq) {
+        onSuccess(createdReq);
       } else {
         onClose();
       }
@@ -155,26 +135,6 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
           </button>
         </div>
 
-        {/* Quick Sample Presets */}
-        <div className="bg-sky-50/70 border-b border-sky-100 p-3 px-5">
-          <p className="text-[11px] font-bold text-sky-900 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-sky-600" />
-            Quick Demo Presets (Instant Fill)
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {PRESETS.map((p, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handlePresetSelect(p)}
-                className="text-xs px-2.5 py-1 rounded-md bg-white border border-sky-200 text-sky-800 hover:bg-sky-100 transition cursor-pointer font-medium"
-              >
-                Sample {idx + 1}: {p.title.slice(0, 35)}...
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {errorMsg && (
@@ -205,14 +165,14 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Administrative District / Ward
+                Administrative District / Ward *
               </label>
               <input
                 type="text"
                 value={district}
                 onChange={(e) => setDistrict(e.target.value)}
                 className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
-                placeholder="e.g. Central Chennai, Ward 14"
+                placeholder="e.g. Coimbatore, Kakinada, Lucknow"
                 required
               />
             </div>
@@ -227,7 +187,7 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Severe crater potholes on main arterial roadway"
+              placeholder="e.g. Severe road damage / broken culvert on main street"
               className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
               required
             />
@@ -282,13 +242,13 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5 text-slate-500" />
-              Specific Location Landmark
+              Specific Location Landmark *
             </label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g. Near Metro Pillar 142, Anna Salai"
+              placeholder="e.g. Near Market Junction / Main Water Tank"
               className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
             />
           </div>
@@ -297,24 +257,7 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({
             label="Site Photo Evidence"
             currentPhotoUrl={photoUrl}
             onChangePhotoUrl={(url) => setPhotoUrl(url)}
-            presets={[
-              {
-                id: 'p1',
-                label: 'Anna Salai Arterial Road Potholes',
-                url: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=600&auto=format&fit=crop&q=80',
-              },
-              {
-                id: 'p2',
-                label: 'Gandhi Nagar Waterlogged Pavement',
-                url: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
-              },
-              {
-                id: 'p3',
-                label: 'Culvert Wall Fissure & Erosion',
-                url: 'https://images.unsplash.com/photo-1590381105924-c72589b9ef3f?w=600&auto=format&fit=crop&q=80',
-              },
-            ]}
-            helpText="Upload actual photograph from your device camera or select a field preset."
+            helpText="Upload actual photograph from your device camera or file system."
           />
 
           {/* AI Orchestrator Notice */}

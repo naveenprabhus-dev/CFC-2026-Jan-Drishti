@@ -4,6 +4,7 @@ import {
   Milestone,
   ContractorEvidence,
   OfficialInspection,
+  CommunityObservation,
   AuditEvent,
   UserSession,
 } from '../../types/domain';
@@ -11,9 +12,14 @@ import { apiClient } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { DigitalThreadBadge } from '../common/DigitalThreadBadge';
+import { EvidenceImage } from '../common/EvidenceImage';
 import { LifecycleTimeline } from '../common/LifecycleTimeline';
 import { InspectionModal } from '../official/InspectionModal';
 import { AssignContractorModal } from '../official/AssignContractorModal';
+import {
+  evaluateMilestonePrerequisites,
+  evaluateProjectCompletionEligibility,
+} from '../../utils/milestoneGovernance';
 import {
   X,
   Building2,
@@ -27,6 +33,9 @@ import {
   RotateCcw,
   Sparkles,
   Eye,
+  Landmark,
+  Lock,
+  Check,
   FileText,
   Clock,
   Hammer,
@@ -64,6 +73,41 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const [completionNotes, setCompletionNotes] = useState(
     'All engineering specifications, layer compaction tests, and safety markings fully certified by PWD Chief Engineer.'
   );
+
+  const [verifyingMilestone, setVerifyingMilestone] = useState<Milestone | null>(null);
+  const [verificationNotes, setVerificationNotes] = useState('');
+  const [isVerifyingSubmitting, setIsVerifyingSubmitting] = useState(false);
+  const [actionErrorMsg, setActionErrorMsg] = useState<string | null>(null);
+
+  const handleVerifyMilestoneSubmit = async (milestoneId: string) => {
+    setIsVerifyingSubmitting(true);
+    setActionErrorMsg(null);
+    try {
+      await apiClient.verifyMilestone(projectId, milestoneId, verificationNotes || 'All prerequisites verified by Official.');
+      setVerifyingMilestone(null);
+      setVerificationNotes('');
+      await fetchProjectDetails();
+      if (onProjectUpdated) onProjectUpdated();
+    } catch (err: any) {
+      console.error('Milestone verification error:', err);
+      setActionErrorMsg(err.message || 'Milestone verification failed. Prerequisites incomplete.');
+    } finally {
+      setIsVerifyingSubmitting(false);
+    }
+  };
+
+  const handleCompleteProjectSubmit = async () => {
+    setActionErrorMsg(null);
+    try {
+      await apiClient.certifyProjectCompletion(projectId, completionNotes);
+      setIsCompleting(false);
+      await fetchProjectDetails();
+      if (onProjectUpdated) onProjectUpdated();
+    } catch (err: any) {
+      console.error('Project completion certification error:', err);
+      setActionErrorMsg(err.message || 'Project completion certification locked. All milestones must be verified first.');
+    }
+  };
 
   const fetchProjectDetails = async () => {
     setIsLoading(true);
@@ -116,6 +160,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const p: Project = projectData;
   const evidenceList: ContractorEvidence[] = projectData.evidence || [];
   const inspectionList: OfficialInspection[] = projectData.inspections || [];
+  const observations: CommunityObservation[] = projectData.communityObservations || projectData.observations || [];
   const auditLogs: AuditEvent[] = projectData.auditHistory || [];
   const isReworkMandated = p.status === 'DELAYED' && !!p.reworkRequiredMessage;
 
@@ -195,14 +240,37 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
               </button>
             )}
 
-            {isOfficial && p.status !== 'COMPLETED' && (
-              <button
-                onClick={() => setIsCompleting(true)}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-xs"
-              >
-                Certify Completion
-              </button>
-            )}
+            {/* Project Completion Certification Button (Governance Locked) */}
+            {isOfficial && p.status !== 'COMPLETED' && (() => {
+              const completionEligibility = evaluateProjectCompletionEligibility(p, evidenceList, inspectionList);
+              if (completionEligibility.isReadyForCompletion) {
+                return (
+                  <button
+                    onClick={() => setIsCompleting(true)}
+                    className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-lg text-xs shadow-md transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Certify Project Completion</span>
+                  </button>
+                );
+              } else {
+                return (
+                  <div className="relative group">
+                    <button
+                      disabled
+                      className="px-3.5 py-2 bg-slate-800 text-slate-400 rounded-lg text-xs font-bold border border-slate-700 opacity-60 cursor-not-allowed flex items-center gap-1.5"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Completion Locked ({completionEligibility.verifiedMilestonesCount}/{completionEligibility.totalMilestonesCount} Verified)</span>
+                    </button>
+                    <div className="absolute right-0 top-full mt-1.5 hidden group-hover:block w-64 bg-slate-900 text-white text-[10px] p-2.5 rounded-xl shadow-xl z-50 border border-slate-700 leading-relaxed font-medium">
+                      <strong className="block text-amber-400 mb-0.5">Completion Locked</strong>
+                      All engineering milestones must be verified first. Unverified: {completionEligibility.unverifiedMilestones.map((m) => m.title).join(', ')}.
+                    </div>
+                  </div>
+                );
+              }
+            })()}
 
             <button
               onClick={onClose}
@@ -346,6 +414,44 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
 
               {/* Contractor & Originating Citizen Request */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Financial Sanction Banner for Pending Sanction */}
+                {(p.status === 'CONTRACTOR_RECOMMENDED' || p.status === 'PENDING_FINANCIAL_SANCTION' || p.status === 'PROPOSED') && (
+                  <div className="p-5 bg-amber-50 border border-amber-300 rounded-2xl space-y-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Landmark className="w-5 h-5 text-amber-700 shrink-0" />
+                        <span className="font-extrabold text-amber-950 uppercase tracking-wider text-xs">
+                          Financial Sanction Status: WAITING FOR FINANCIAL SANCTION
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded bg-amber-200 text-amber-900 font-mono font-bold text-[10px]">
+                        Submitted to Sanctioning Authority
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div>
+                        <span className="text-[10px] text-amber-800 font-bold uppercase block">Sanctioning Authority</span>
+                        <span className="font-bold text-slate-900">Finance & Treasury Sanctioning Authority</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-amber-800 font-bold uppercase block">Requested Amount</span>
+                        <span className="font-mono font-bold text-slate-900">INR {(p.recommendedAmount || p.funding?.contracted || p.funding?.sanctioned)?.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-amber-800 font-bold uppercase block">Recommended Contractor</span>
+                        <span className="font-bold text-slate-900">{p.recommendedContractorName || p.contractorName || 'Selected Enlisted Agency'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-amber-800 font-bold uppercase block">Next Step</span>
+                        <span className="font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 inline-block">
+                          Awaiting Financial Sanction
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-4 bg-amber-50/60 rounded-xl border border-amber-200 text-xs">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-amber-950 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
@@ -405,63 +511,118 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Execution Milestones & Progress Certification
+                    Execution Milestones & Governance Prerequisites
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Each milestone requires evidence upload, AI comparison, and official human inspection sign-off.
+                    Milestones are locked from premature verification. All prerequisites must be satisfied.
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {p.milestones.map((m, idx) => {
+              {actionErrorMsg && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-900 rounded-xl text-xs font-bold flex items-center justify-between gap-2">
+                  <span>{actionErrorMsg}</span>
+                  <button onClick={() => setActionErrorMsg(null)} className="text-rose-700 hover:text-rose-900 cursor-pointer">✕</button>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {p.milestones.map((m) => {
                   const mEvidence = evidenceList.filter((e) => e.milestoneId === m.id);
+                  const mInspections = inspectionList.filter((i) => i.milestoneId === m.id);
+                  const prereqs = evaluateMilestonePrerequisites(p, m, evidenceList, inspectionList, observations);
 
                   return (
                     <div
                       key={m.id}
-                      className={`p-4 rounded-xl border transition ${
+                      className={`p-5 rounded-2xl border transition space-y-3 ${
                         m.status === 'VERIFIED'
                           ? 'bg-emerald-50/60 border-emerald-300'
-                          : m.status === 'DELAYED'
+                          : m.status === 'DELAYED' || m.status === 'REWORK_REQUIRED'
                           ? 'bg-red-50/70 border-red-300'
-                          : m.status === 'UNDER_REVIEW'
-                          ? 'bg-purple-50/60 border-purple-300'
-                          : 'bg-white border-slate-200'
+                          : prereqs.isReadyForVerification
+                          ? 'bg-indigo-50/60 border-indigo-300'
+                          : 'bg-white border-slate-200 shadow-xs'
                       }`}
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-7 h-7 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xs shadow-xs">
                             {m.sequence}
                           </span>
-                          <h5 className="font-bold text-slate-900 text-sm">{m.title}</h5>
+                          <div>
+                            <h5 className="font-extrabold text-slate-900 text-sm">{m.title}</h5>
+                            <p className="text-xs text-slate-600 mt-0.5">{m.description}</p>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span
-                            className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
+                            className={`text-xs px-3 py-1 rounded-full font-black border ${
                               m.status === 'VERIFIED'
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                : m.status === 'DELAYED'
-                                ? 'bg-red-100 text-red-800 border-red-300'
-                                : m.status === 'UNDER_REVIEW'
-                                ? 'bg-purple-100 text-purple-800 border-purple-300'
-                                : 'bg-slate-100 text-slate-700 border-slate-300'
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                : m.status === 'DELAYED' || m.status === 'REWORK_REQUIRED'
+                                ? 'bg-rose-100 text-rose-900 border-rose-300'
+                                : prereqs.isReadyForVerification
+                                ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                                : 'bg-amber-100 text-amber-900 border-amber-300'
                             }`}
                           >
-                            {m.status}
-                          </span>
-                          <span className="text-xs font-mono text-slate-500">
-                            Claimed: {m.completionPercentageClaimed}%
+                            {m.status === 'VERIFIED'
+                              ? '✓ VERIFIED'
+                              : m.status === 'DELAYED' || m.status === 'REWORK_REQUIRED'
+                              ? 'REWORK MANDATED'
+                              : prereqs.isReadyForVerification
+                              ? 'READY FOR VERIFICATION'
+                              : 'INSPECTION PENDING'}
                           </span>
                         </div>
                       </div>
 
-                      <p className="text-xs text-slate-600 mb-3">{m.description}</p>
+                      {/* PREREQUISITES CHECKLIST */}
+                      {m.status !== 'VERIFIED' && (
+                        <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                          <span className="text-[10px] uppercase font-bold text-slate-500 block tracking-wider">
+                            Verification Prerequisites Governance Checklist
+                          </span>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-bold">
+                            <div className={`flex items-center gap-1.5 ${prereqs.checklist.sequenceValid ? 'text-emerald-700' : 'text-slate-400'}`}>
+                              {prereqs.checklist.sequenceValid ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <X className="w-3.5 h-3.5 text-slate-400" />}
+                              <span>Sequence Active</span>
+                            </div>
+
+                            <div className={`flex items-center gap-1.5 ${prereqs.checklist.evidenceSubmitted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              {prereqs.checklist.evidenceSubmitted ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <X className="w-3.5 h-3.5 text-amber-600" />}
+                              <span>Evidence Uploaded</span>
+                            </div>
+
+                            <div className={`flex items-center gap-1.5 ${prereqs.checklist.aiAnalysisCompleted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              {prereqs.checklist.aiAnalysisCompleted ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <X className="w-3.5 h-3.5 text-amber-600" />}
+                              <span>AI Verification</span>
+                            </div>
+
+                            <div className={`flex items-center gap-1.5 ${prereqs.checklist.officialInspectionCompleted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              {prereqs.checklist.officialInspectionCompleted ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <X className="w-3.5 h-3.5 text-amber-600" />}
+                              <span>Field Inspection</span>
+                            </div>
+
+                            <div className={`flex items-center gap-1.5 ${prereqs.checklist.reworkCleared && prereqs.checklist.reinspectionCompleted ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {prereqs.checklist.reworkCleared && prereqs.checklist.reinspectionCompleted ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />}
+                              <span>Rework Cleared</span>
+                            </div>
+                          </div>
+
+                          {!prereqs.isReadyForVerification && (
+                            <div className="p-2 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium flex items-start gap-1.5">
+                              <Lock className="w-3.5 h-3.5 text-amber-700 mt-0.5 shrink-0" />
+                              <span><strong>Verification Locked:</strong> {prereqs.missingPrerequisites[0]}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {m.reworkNotes && (
-                        <div className="p-2.5 bg-red-100/70 border border-red-200 rounded-lg text-xs text-red-900 mb-3">
+                        <div className="p-2.5 bg-red-100/80 border border-red-200 rounded-xl text-xs text-red-950">
                           <strong className="block text-[11px] mb-0.5">Rework Directive:</strong>
                           {m.reworkNotes}
                         </div>
@@ -471,7 +632,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                         <span className="text-slate-500 text-[11px]">
                           Target Date: <strong className="text-slate-700">{m.targetDate}</strong>
                           {m.verifiedAt && (
-                            <span className="text-emerald-700 ml-2">
+                            <span className="text-emerald-700 font-bold ml-2">
                               • Verified on {new Date(m.verifiedAt).toLocaleDateString()}
                             </span>
                           )}
@@ -481,12 +642,10 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                           {/* Contractor Submit Evidence Button */}
                           {isContractor && m.status !== 'VERIFIED' && onOpenSubmitEvidence && (
                             <button
-                              onClick={() =>
-                                onOpenSubmitEvidence(p, m, m.status === 'DELAYED')
-                              }
-                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                              onClick={() => onOpenSubmitEvidence(p, m, m.status === 'DELAYED' || m.status === 'REWORK_REQUIRED')}
+                              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
                             >
-                              {m.status === 'DELAYED' ? 'Submit Rework Evidence' : 'Submit Evidence'}
+                              {m.status === 'DELAYED' || m.status === 'REWORK_REQUIRED' ? 'Submit Rework Evidence' : 'Submit Progress Evidence'}
                             </button>
                           )}
 
@@ -504,24 +663,37 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                                     submittedByName: p.contractorName || 'Assigned Contractor',
                                     submittedAt: new Date().toISOString(),
                                     description: `Execution evidence for milestone: ${m.title}`,
-                                    mediaRefs: [
-                                      {
-                                        type: 'photo',
-                                        url: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
-                                        caption: `Milestone ${m.sequence} site execution photograph`,
-                                      },
-                                    ],
-                                    claimedProgress: 100,
-                                    location: { lat: 13.0827, lng: 80.2707, label: `${p.district} Site` },
+                                    mediaRefs: p.evidence?.[0] ? p.evidence[0].mediaRefs : [],
+                                    claimedProgress: m.completionPercentageClaimed || 100,
+                                    location: { label: `${p.district || 'Worksite'} Site` },
                                     status: 'SUBMITTED',
                                     provenance: 'CONTRACTOR_SUBMISSION',
                                   },
                                 })
                               }
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1"
+                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs flex items-center gap-1.5"
                             >
-                              <ShieldCheck className="w-3.5 h-3.5" />
-                              <span>Official Inspection Review</span>
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Record Field Inspection</span>
+                            </button>
+                          )}
+
+                          {/* Official Verify Milestone Button (Prerequisites Locked) */}
+                          {isOfficial && m.status !== 'VERIFIED' && (
+                            <button
+                              disabled={!prereqs.isReadyForVerification}
+                              onClick={() => {
+                                setVerificationNotes(`Official verification sign-off for milestone ${m.sequence} (${m.title}) after checking all evidence, AI verification, and field test logs.`);
+                                setVerifyingMilestone(m);
+                              }}
+                              className={`px-4 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                                prereqs.isReadyForVerification
+                                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                              }`}
+                            >
+                              {!prereqs.isReadyForVerification && <Lock className="w-3.5 h-3.5" />}
+                              <span>{prereqs.isReadyForVerification ? 'Verify Milestone' : 'Verification Locked'}</span>
                             </button>
                           )}
                         </div>
@@ -587,7 +759,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {e.mediaRefs.filter((m) => Boolean(m.url && m.url.trim())).map((m, idx) => (
                             <div key={idx} className="rounded-lg overflow-hidden border border-slate-200">
-                              <img src={m.url} alt="Evidence" className="w-full h-32 object-cover" />
+                              <EvidenceImage src={m.url} alt="Evidence" className="w-full h-32 object-cover" />
                               <p className="text-[10px] text-slate-500 p-1.5 text-center bg-slate-50 font-mono">
                                 {m.caption}
                               </p>
@@ -643,37 +815,45 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                 <ProvenanceBadge type="GOVERNMENT_DATA" modelOrSource="PMGSY / State PWD Head" />
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-[10px] uppercase font-bold text-slate-500">Allocated Budget</span>
-                  <p className="text-lg font-mono font-bold text-slate-900 mt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-[9px] uppercase font-bold text-slate-500 block truncate">Allocated Budget</span>
+                  <p className="text-sm font-mono font-black text-slate-800 mt-1">
                     INR {p.funding.allocated.toLocaleString()}
                   </p>
-                  <span className="text-[10px] text-slate-400">Total Program Ceiling</span>
+                  <span className="text-[9px] text-slate-400 block mt-0.5">Program Ceiling</span>
                 </div>
 
-                <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200">
-                  <span className="text-[10px] uppercase font-bold text-emerald-800">Sanctioned Amount</span>
-                  <p className="text-lg font-mono font-bold text-emerald-950 mt-1">
+                <div className="p-3 bg-purple-50/80 rounded-xl border border-purple-200">
+                  <span className="text-[9px] uppercase font-bold text-purple-800 block truncate">Sanctioned Outlay</span>
+                  <p className="text-sm font-mono font-black text-purple-950 mt-1">
                     INR {p.funding.sanctioned.toLocaleString()}
                   </p>
-                  <span className="text-[10px] text-emerald-700">Official Sanction Head</span>
+                  <span className="text-[9px] text-purple-700 block mt-0.5">Approved Amount</span>
                 </div>
 
-                <div className="p-4 bg-amber-50/60 rounded-xl border border-amber-200">
-                  <span className="text-[10px] uppercase font-bold text-amber-800">Contracted Value</span>
-                  <p className="text-lg font-mono font-bold text-amber-950 mt-1">
+                <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200">
+                  <span className="text-[9px] uppercase font-bold text-amber-800 block truncate">Contracted Value</span>
+                  <p className="text-sm font-mono font-black text-amber-950 mt-1">
                     INR {p.funding.contracted?.toLocaleString() || '0'}
                   </p>
-                  <span className="text-[10px] text-amber-700">Awarded to Contractor</span>
+                  <span className="text-[9px] text-amber-700 block mt-0.5">Awarded Value</span>
                 </div>
 
-                <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-200">
-                  <span className="text-[10px] uppercase font-bold text-blue-800">Verified Expenditure</span>
-                  <p className="text-lg font-mono font-bold text-blue-950 mt-1">
+                <div className="p-3 bg-blue-50/80 rounded-xl border border-blue-200">
+                  <span className="text-[9px] uppercase font-bold text-blue-800 block truncate">Expenditure</span>
+                  <p className="text-sm font-mono font-black text-blue-950 mt-1">
                     INR {p.funding.expenditure?.toLocaleString() || '0'}
                   </p>
-                  <span className="text-[10px] text-blue-700">Disbursed on Verification</span>
+                  <span className="text-[9px] text-blue-700 block mt-0.5">Disbursed Funds</span>
+                </div>
+
+                <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-200 col-span-2 sm:col-span-1">
+                  <span className="text-[9px] uppercase font-bold text-emerald-800 block truncate">Remaining Balance</span>
+                  <p className="text-sm font-mono font-black text-emerald-950 mt-1">
+                    INR {((p.funding.allocated || 0) - (p.funding.expenditure || 0)).toLocaleString()}
+                  </p>
+                  <span className="text-[9px] text-emerald-700 block mt-0.5">Allocated - Spent</span>
                 </div>
               </div>
 
@@ -765,28 +945,80 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
         {isCompleting && (
           <div className="p-4 bg-emerald-50 border-t border-emerald-300 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             <div className="flex-1">
-              <span className="font-bold text-emerald-950 block">Official Project Completion Sign-Off</span>
+              <span className="font-bold text-emerald-950 block">Official Project Completion Certification Sign-Off</span>
+              <p className="text-[11px] text-emerald-800 mb-1">Certifying that all milestones have been verified and full engineering specifications are met.</p>
               <input
                 type="text"
                 value={completionNotes}
                 onChange={(e) => setCompletionNotes(e.target.value)}
-                className="w-full text-xs p-2 rounded border border-emerald-300 bg-white mt-1"
+                className="w-full text-xs p-2.5 rounded-xl border border-emerald-300 bg-white"
                 placeholder="Final engineering verification note..."
               />
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsCompleting(false)}
-                className="px-3 py-1.5 bg-white border border-slate-300 rounded text-slate-700 cursor-pointer"
+                className="px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-slate-700 font-bold cursor-pointer"
               >
                 Cancel
               </button>
               <button
-                onClick={handleCompleteProject}
-                className="px-4 py-1.5 bg-emerald-600 text-white rounded font-bold hover:bg-emerald-700 cursor-pointer"
+                onClick={handleCompleteProjectSubmit}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black shadow-md cursor-pointer"
               >
-                Confirm Completion
+                Certify Project Completion
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Milestone Verification Modal Overlay */}
+        {verifyingMilestone && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200">
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Verify Milestone {verifyingMilestone.sequence}</h3>
+                  <p className="text-xs text-slate-500">{verifyingMilestone.title}</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>All governance prerequisites (Evidence, AI check, Field Inspection) satisfied!</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+                  Official Verification Notes
+                </label>
+                <textarea
+                  rows={3}
+                  value={verificationNotes}
+                  onChange={(e) => setVerificationNotes(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-slate-300 text-xs font-medium text-slate-900 outline-none focus:border-indigo-500 bg-slate-50 focus:bg-white transition"
+                  placeholder="Enter official engineering verification sign-off notes..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setVerifyingMilestone(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleVerifyMilestoneSubmit(verifyingMilestone.id)}
+                  disabled={isVerifyingSubmitting}
+                  className="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {isVerifyingSubmitting ? 'Verifying...' : 'Confirm Milestone Verification'}
+                </button>
+              </div>
             </div>
           </div>
         )}

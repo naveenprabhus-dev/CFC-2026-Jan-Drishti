@@ -20,8 +20,18 @@ export const CitizenProfileView: React.FC<CitizenProfileViewProps> = ({
   onBack,
   requestsCount,
 }) => {
-  const { currentUser, isDemoAccount } = useAuth();
+  const { currentUser } = useAuth();
   const { t } = useLanguage();
+
+  const getHomeJurisdiction = () => {
+    if (currentUser?.jurisdiction) return currentUser.jurisdiction;
+    const parts = [];
+    if (currentUser?.homeWard) parts.push(`Ward ${currentUser.homeWard}`);
+    if (currentUser?.homeULB) parts.push(currentUser.homeULB);
+    if (currentUser?.homeDistrict) parts.push(currentUser.homeDistrict);
+    if (currentUser?.homeState) parts.push(currentUser.homeState);
+    return parts.length > 0 ? parts.join(', ') : 'Not Configured';
+  };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-200">
@@ -52,19 +62,17 @@ export const CitizenProfileView: React.FC<CitizenProfileViewProps> = ({
           <div className="space-y-1 min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="text-xl sm:text-2xl font-black text-slate-900 truncate">
-                {currentUser?.name || 'Aravind Swaminathan'}
+                {currentUser?.name || 'Citizen'}
               </h3>
-              {isDemoAccount && (
-                <span className="px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300">
-                  {t('profile')}
-                </span>
-              )}
+              <span className="px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300">
+                {t('profile')}
+              </span>
             </div>
             <p className="text-xs text-emerald-700 font-bold">
               {currentUser?.designation || 'Registered Resident & Civic Contributor'}
             </p>
             <p className="text-xs text-slate-500 font-mono">
-              ID: <strong>{currentUser?.id || 'cit-chennai-001'}</strong>
+              ID: <strong>{currentUser?.id || 'citizen'}</strong>
             </p>
           </div>
         </div>
@@ -77,7 +85,7 @@ export const CitizenProfileView: React.FC<CitizenProfileViewProps> = ({
             </span>
             <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
               <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>{currentUser?.jurisdiction || 'Ward 14, Central District, Chennai'}</span>
+              <span>{getHomeJurisdiction()}</span>
             </div>
           </div>
 
@@ -87,7 +95,7 @@ export const CitizenProfileView: React.FC<CitizenProfileViewProps> = ({
             </span>
             <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
               <Mail className="w-4 h-4 text-sky-600 shrink-0" />
-              <span>{currentUser?.email || 'aravind.s@citizen.gov.in'}</span>
+              <span>{currentUser?.email || 'citizen@citizen.gov.in'}</span>
             </div>
           </div>
 

@@ -50,7 +50,7 @@ export const CitizenHome: React.FC<CitizenHomeProps> = ({
           <div className="space-y-3 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 text-xs font-semibold border border-sky-400/30">
               <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
-              <span>{t('civicServicesPortal')} • {currentUser?.jurisdiction || 'Ward 14, Chennai'}</span>
+              <span>{t('civicServicesPortal')} • {currentUser?.homeDistrict ? `${currentUser.homeDistrict}${currentUser?.homeState ? `, ${currentUser.homeState}` : ''}` : (currentUser?.jurisdiction || 'All Jurisdictions')}</span>
             </div>
 
             <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-white">

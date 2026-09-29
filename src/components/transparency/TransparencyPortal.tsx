@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiClient } from '../../services/api';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { DigitalThreadBadge } from '../common/DigitalThreadBadge';
+import { EvidenceImage } from '../common/EvidenceImage';
 import {
   Globe,
   Search,
@@ -204,18 +205,20 @@ export const TransparencyPortal: React.FC = () => {
           </div>
 
           {/* Live Quick Examples */}
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-slate-500">
-            <span className="font-semibold text-slate-400">Quick Track:</span>
-            {['PRJ-DEMO-001', 'PRJ-DEMO-002', 'WT-DEMO-001'].map((id) => (
-              <button
-                key={id}
-                onClick={() => openProjectDetail(id)}
-                className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-white text-teal-800 border border-teal-200 hover:bg-teal-50 transition cursor-pointer"
-              >
-                {id}
-              </button>
-            ))}
-          </div>
+          {projects.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-slate-500">
+              <span className="font-semibold text-slate-400">Quick Track:</span>
+              {projects.slice(0, 3).map((p: any) => (
+                <button
+                  key={p.id}
+                  onClick={() => openProjectDetail(p.id)}
+                  className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-white text-teal-800 border border-teal-200 hover:bg-teal-50 transition cursor-pointer"
+                >
+                  {p.id}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -275,10 +278,9 @@ export const TransparencyPortal: React.FC = () => {
                 className="text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 focus:outline-hidden"
               >
                 <option value="ALL">All Districts</option>
-                <option value="Central Chennai">Central Chennai</option>
-                <option value="Coimbatore">Coimbatore</option>
-                <option value="Madurai">Madurai</option>
-                <option value="Salem">Salem</option>
+                {Array.from(new Set(projects.map((p: any) => p.district).filter(Boolean))).map((dist: any) => (
+                  <option key={dist} value={dist}>{dist}</option>
+                ))}
               </select>
 
               <select
@@ -315,7 +317,7 @@ export const TransparencyPortal: React.FC = () => {
               <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 space-y-2">
                 <Building2 className="w-10 h-10 text-slate-300 mx-auto" />
                 <h4 className="text-sm font-bold text-slate-800">No public projects match your criteria</h4>
-                <p className="text-xs text-slate-500">Try searching for "PRJ-DEMO", "Anna Salai", "Gandhi Nagar", or "Chennai".</p>
+                <p className="text-xs text-slate-500">Try searching by Project ID, Work Token, or Location Name.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -359,7 +361,7 @@ export const TransparencyPortal: React.FC = () => {
                           <div className="flex items-center gap-1.5">
                             <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span className="text-slate-700 font-medium">
-                              {p.district}, {p.state || 'Tamil Nadu'}
+                              {p.district || 'District'}{p.state ? `, ${p.state}` : ''}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5">
@@ -448,27 +450,25 @@ export const TransparencyPortal: React.FC = () => {
           <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-xs space-y-4">
             <h4 className="font-bold text-slate-900 text-sm">Browse Public Works By Administrative Region</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {[
-                { name: 'Central Chennai', count: 2, desc: 'High-density urban thoroughfares & storm drainage networks' },
-                { name: 'Coimbatore North', count: 1, desc: 'Industrial freight links & peri-urban culvert restorations' },
-                { name: 'Madurai East', count: 1, desc: 'Suburban water mains & flood barrier reinforcements' },
-                { name: 'Salem Urban', count: 1, desc: 'Intersection safety corridors & traffic signalization' },
-              ].map((dist) => (
-                <div
-                  key={dist.name}
-                  onClick={() => {
-                    setSelectedDistrict(dist.name.split(' ')[0]);
-                    setActiveTab('find');
-                  }}
-                  className="p-4 bg-slate-50 hover:bg-teal-50/50 rounded-xl border border-slate-200/80 hover:border-teal-200 transition cursor-pointer space-y-1"
-                >
-                  <h5 className="font-bold text-slate-900 text-sm">{dist.name}</h5>
-                  <p className="text-[11px] text-slate-500 leading-snug">{dist.desc}</p>
-                  <span className="text-[10px] font-bold text-teal-800 block pt-1">
-                    Explore {dist.count} projects →
-                  </span>
-                </div>
-              ))}
+              {Array.from(new Set(projects.map((p: any) => p.district).filter(Boolean))).map((distName: any) => {
+                const count = projects.filter((p: any) => p.district === distName).length;
+                return (
+                  <div
+                    key={distName}
+                    onClick={() => {
+                      setSelectedDistrict(distName);
+                      setActiveTab('find');
+                    }}
+                    className="p-4 bg-slate-50 hover:bg-teal-50/50 rounded-xl border border-slate-200/80 hover:border-teal-200 transition cursor-pointer space-y-1"
+                  >
+                    <h5 className="font-bold text-slate-900 text-sm">{distName}</h5>
+                    <p className="text-[11px] text-slate-500 leading-snug">Public Infrastructure & Civil Works</p>
+                    <span className="text-[10px] font-bold text-teal-800 block pt-1">
+                      Explore {count} project{count === 1 ? '' : 's'} →
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -699,7 +699,7 @@ export const TransparencyPortal: React.FC = () => {
                 <p className="text-xs text-slate-400 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5" />
                   <span>
-                    {selectedProject.district}, {selectedProject.state || 'Tamil Nadu'} • Authority:{' '}
+                    {selectedProject.district || 'District'}{selectedProject.state ? `, ${selectedProject.state}` : ''} • Authority:{' '}
                     {selectedProject.department}
                   </span>
                 </p>
@@ -870,7 +870,7 @@ export const TransparencyPortal: React.FC = () => {
                     {selectedProject.evidence.map((ev: any) =>
                       ev.mediaRefs?.filter((m: any) => Boolean(m.url && m.url.trim())).map((m: any, idx: number) => (
                         <div key={idx} className="rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
-                          <img src={m.url} alt="Verified Site Evidence" className="w-full h-36 object-cover" />
+                          <EvidenceImage src={m.url} alt="Verified Site Evidence" className="w-full h-36 object-cover" />
                           <p className="text-[10px] text-slate-600 p-2.5 bg-slate-50 text-center font-mono">
                             {m.caption}
                           </p>

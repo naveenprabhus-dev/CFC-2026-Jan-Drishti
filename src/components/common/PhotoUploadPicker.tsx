@@ -22,7 +22,7 @@ export const PhotoUploadPicker: React.FC<PhotoUploadPickerProps> = ({
   currentPhotoUrl,
   onChangePhotoUrl,
   presets = [],
-  helpText = 'Upload actual photographic evidence from your device or select from verified field presets.',
+  helpText = 'Upload actual photographic evidence from your device camera or files.',
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileMeta, setFileMeta] = useState<{ name: string; size: number } | null>(null);
@@ -192,39 +192,6 @@ export const PhotoUploadPicker: React.FC<PhotoUploadPickerProps> = ({
           className="hidden"
         />
       </div>
-
-      {/* Preset Selector fallback */}
-      {presets.length > 0 && (
-        <div className="space-y-1.5 pt-1">
-          <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
-            Or Choose Sample Field Presets:
-          </span>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {presets.map((p) => {
-              const isSelected = !isCustomUpload && currentPhotoUrl === p.url;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    setFileMeta(null);
-                    setIsCustomUpload(false);
-                    onChangePhotoUrl(p.url, false);
-                  }}
-                  className={`p-2 rounded-xl border text-left text-xs transition cursor-pointer flex items-center gap-2 ${
-                    isSelected
-                      ? 'border-sky-500 bg-sky-50/80 ring-2 ring-sky-300 font-bold'
-                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  <img src={p.url} alt={p.label} className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" />
-                  <span className="text-[11px] leading-tight line-clamp-2">{p.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       <p className="text-[10px] text-slate-500 italic">{helpText}</p>
     </div>

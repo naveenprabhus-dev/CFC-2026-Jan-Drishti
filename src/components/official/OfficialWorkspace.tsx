@@ -502,6 +502,7 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
               <OfficialAITriageView
                 requests={requests}
                 onOpenTriageModal={(req) => setSelectedTriageRequest(req)}
+                currentUser={currentUser}
               />
             )}
           </div>
@@ -698,6 +699,7 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
             {inspectionsSubView === 'INSPECTIONS' ? (
               <OfficialInspectionsView
                 projects={projects}
+                currentUser={currentUser}
                 onOpenInspectionModal={(proj, ev, m) => {
                   setSelectedProjectForInspection(proj);
                   setInspectionEvidence(ev);
@@ -843,18 +845,10 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
             submittedByName: selectedProjectForInspection.contractorName || 'Assigned Contractor',
             submittedAt: new Date().toISOString(),
             description: `Site ground photo evidence for milestone: ${activeMilestone.title}`,
-            mediaRefs: [
-              {
-                type: 'photo',
-                url: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
-                caption: `Completed execution evidence for ${activeMilestone.title}`,
-              },
-            ],
+            mediaRefs: selectedProjectForInspection.evidence?.[0] ? selectedProjectForInspection.evidence[0].mediaRefs : [],
             claimedProgress: 100,
             location: {
-              lat: 13.0827,
-              lng: 80.2707,
-              label: `${selectedProjectForInspection.district || 'Site'} Location`,
+              label: `${selectedProjectForInspection.district || 'Worksite'} Location`,
             },
             status: 'SUBMITTED',
             provenance: 'CONTRACTOR_SUBMISSION',

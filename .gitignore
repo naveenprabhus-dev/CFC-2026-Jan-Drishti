@@ -24,13 +24,24 @@ coverage/
 *.pem
 *.key
 *.cert
+*.crt
 *.pfx
 *.p12
+*.keystore
+*.jks
 id_rsa*
-credentials.json
-client_secret*.json
-service-account*.json
+id_ed25519*
+*.secret
+*.secrets
+*credentials*.json
+*client_secret*.json
+*service-account*.json
+*serviceAccount*.json
 firebase-applet-config.json
+*auth*.json
+*token*.json
+secrets/
+private/
 
 # Local runtime data & file uploads
 data/*.json

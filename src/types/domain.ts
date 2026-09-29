@@ -2,6 +2,7 @@ export type UserRole =
   | 'CITIZEN'
   | 'OFFICIAL'
   | 'POLICYMAKER'
+  | 'SANCTIONING_AUTHORITY'
   | 'CONTRACTOR'
   | 'NGO'
   | 'PUBLIC_VIEWER'
@@ -12,6 +13,10 @@ export interface UserSession {
   name: string;
   email: string;
   role: UserRole;
+  password?: string;
+  status?: 'active' | 'inactive';
+  creationMethod?: 'ADMIN_PROVISIONED' | 'SELF_REGISTERED';
+  createdAt?: string;
   department?: string;
   jurisdiction?: string;
   organization?: string;
@@ -31,6 +36,12 @@ export interface UserSession {
   homeDistrict?: string;
   homeULB?: string;
   homeWard?: string;
+  authorizedRegion?: string;
+  financialThreshold?: number;
+  // Secure Admin Preview & Impersonation Session
+  isPreviewSession?: boolean;
+  actualAdminId?: string;
+  actualAdminName?: string;
 }
 
 export type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -43,7 +54,8 @@ export type RequestStatus =
   | 'PROJECT_CREATED'
   | 'IN_PROGRESS'
   | 'COMPLETED'
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'LINKED_TO_EXISTING';
 
 export type WorkTokenStatus =
   | 'ACTIVE'
@@ -54,14 +66,23 @@ export type WorkTokenStatus =
 
 export type ProjectStatus =
   | 'PROPOSED'
+  | 'RETURNED'
+  | 'REJECTED'
   | 'SANCTIONED'
   | 'TENDERED'
+  | 'CONTRACTOR_RECOMMENDED'
+  | 'PENDING_FINANCIAL_SANCTION'
+  | 'FINANCIAL_SANCTIONED'
+  | 'FINANCIAL_SANCTION_REJECTED'
+  | 'FUNDING_AUTHORIZED'
+  | 'EXECUTION_ENABLED'
   | 'CONTRACTOR_ASSIGNED'
   | 'IN_PROGRESS'
   | 'VERIFICATION_REQUIRED'
   | 'DELAYED'
   | 'COMPLETED'
-  | 'SUSPENDED';
+  | 'SUSPENDED'
+  | 'READY_FOR_COMPLETION';
 
 export type MilestoneStatus =
   | 'PLANNED'
@@ -70,7 +91,9 @@ export type MilestoneStatus =
   | 'UNDER_REVIEW'
   | 'VERIFIED'
   | 'REJECTED'
-  | 'DELAYED';
+  | 'DELAYED'
+  | 'REWORK_REQUIRED'
+  | 'READY_FOR_VERIFICATION';
 
 export type EvidenceVerificationStatus =
   | 'CONSISTENT'
@@ -121,17 +144,27 @@ export interface CitizenRequest {
   location: {
     address: string;
     district: string;
-    state: string;
+    state?: string;
     pincode?: string;
     lat?: number;
     lng?: number;
   };
+  incidentState?: string;
+  incidentDistrict?: string;
+  incidentULB?: string;
+  incidentWard?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
   status: RequestStatus;
   createdAt: string;
   updatedAt: string;
   aiAnalysis?: AIProblemIntelligence;
   workTokenId?: string;
   projectId?: string;
+  existingWorkMatch?: boolean;
+  linkedWorkTokenId?: string;
+  linkedProjectId?: string;
   rejectionReason?: string;
   triagePriority?: 'NORMAL' | 'HIGH' | 'CRITICAL';
   safetyRisk?: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -161,6 +194,7 @@ export interface FundingLedger {
   sanctioned: number;
   contracted: number;
   expenditure: number;
+  remaining?: number;
   currency: string;
   schemeSource: string;
   budgetHead: string;
@@ -180,6 +214,48 @@ export interface Milestone {
   reworkNotes?: string;
 }
 
+export interface TenderQuote {
+  id: string;
+  tenderId: string;
+  projectId: string;
+  contractorId: string;
+  contractorName: string;
+  quotedAmount: number;
+  durationDays: number;
+  scopeConfirmation: boolean;
+  notes: string;
+  supportingInfoUrl?: string;
+  submittedAt: string;
+  aiAnalysis?: {
+    score: number;
+    priceFit: string;
+    technicalFit: string;
+    recommendation: 'RECOMMENDED' | 'ACCEPTABLE' | 'NOT_RECOMMENDED';
+    reasoning: string;
+  };
+  officialSelection?: {
+    selected: boolean;
+    decisionActor: string;
+    decisionTimestamp: string;
+    reason: string;
+  };
+}
+
+export interface ProjectTender {
+  id: string;
+  projectId: string;
+  title: string;
+  developmentType: 'ROAD' | 'STREETLIGHT' | 'WATER' | 'DRAINAGE' | 'BRIDGE' | 'OTHER';
+  district: string;
+  state: string;
+  sanctionedAmount: number;
+  requiredScope: string;
+  deadline: string;
+  eligibleContractorIds: string[];
+  status: 'OPEN_FOR_QUOTES' | 'EVALUATION' | 'AWARDED' | 'CLOSED';
+  createdAt: string;
+}
+
 export interface Project {
   id: string;
   workTokenId: string;
@@ -193,6 +269,14 @@ export interface Project {
   status: ProjectStatus;
   contractorId?: string;
   contractorName?: string;
+  recommendedContractorId?: string;
+  recommendedContractorName?: string;
+  recommendedQuoteId?: string;
+  recommendedAmount?: number;
+  recommendedBy?: string;
+  recommendedAt?: string;
+  recommendationReason?: string;
+  assignmentEffectiveAt?: string;
   funding: FundingLedger;
   milestones: Milestone[];
   createdAt: string;
@@ -203,6 +287,9 @@ export interface Project {
   targetCompletionDate: string;
   reworkRequiredMessage?: string;
   officialReviewNotes?: string;
+  evidence?: ContractorEvidence[];
+  tender?: ProjectTender;
+  quotes?: TenderQuote[];
 }
 
 export interface ContractorEvidence {
@@ -357,14 +444,24 @@ export interface AuditEvent {
   id: string;
   actor: string;
   actorRole: string;
+  actorId?: string;
+  actorName?: string;
   action: string;
-  entityType: 'REQUEST' | 'WORK_TOKEN' | 'PROJECT' | 'EVIDENCE' | 'INSPECTION' | 'FUNDING' | 'NGO_TASK' | 'USER';
+  entityType: 'REQUEST' | 'WORK_TOKEN' | 'PROJECT' | 'EVIDENCE' | 'INSPECTION' | 'FUNDING' | 'NGO_TASK' | 'USER' | 'USER_SESSION' | 'PLATFORM' | 'MILESTONE';
   entityId: string;
+  projectId?: string;
+  milestoneId?: string;
   timestamp: string;
   previousState?: string;
   newState?: string;
-  reason: string;
-  correlationId: string;
+  reason?: string;
+  correlationId?: string;
+  details?: string;
+  adminId?: string;
+  targetUserId?: string;
+  targetRole?: string;
+  amount?: number;
+  decision?: string;
 }
 
 export interface AppNotification {

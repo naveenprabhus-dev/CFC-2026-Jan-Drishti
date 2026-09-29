@@ -25,6 +25,7 @@ interface OfficialInspectionsViewProps {
   onOpenReworkModal: (project: Project) => void;
   onOpenProjectDetail: (projectId: string) => void;
   onCompleteProject?: (projectId: string) => void;
+  currentUser?: any;
 }
 
 export const OfficialInspectionsView: React.FC<OfficialInspectionsViewProps> = ({
@@ -33,6 +34,7 @@ export const OfficialInspectionsView: React.FC<OfficialInspectionsViewProps> = (
   onOpenReworkModal,
   onOpenProjectDetail,
   onCompleteProject,
+  currentUser,
 }) => {
   const { t } = useLanguage();
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
@@ -234,7 +236,7 @@ export const OfficialInspectionsView: React.FC<OfficialInspectionsViewProps> = (
                   Official Human Inspection Decision
                 </span>
                 <p className="text-xs font-bold text-slate-800">
-                  Authority: K. Ramanathan (Chief Engineer)
+                  Authority: {currentUser?.name || 'Authorized Official'}{currentUser?.designation ? ` (${currentUser.designation})` : ''}
                 </p>
               </div>
 

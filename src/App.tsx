@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider } from './context/LanguageContext';
-import { apiClient } from './services/api';
 import { Header } from './components/common/Header';
+import { AdminPreviewBanner } from './components/common/AdminPreviewBanner';
+import { PersonaSwitcherModal } from './components/common/PersonaSwitcherModal';
 import { LandingPage } from './components/auth/LandingPage';
 import { LoginModal } from './components/auth/LoginModal';
 import { RegisterModal } from './components/auth/RegisterModal';
-import { DemoLoginModal } from './components/auth/DemoLoginModal';
+import { AdminWorkspace } from './components/admin/AdminWorkspace';
 import { CitizenWorkspace } from './components/citizen/CitizenWorkspace';
 import { OfficialWorkspace } from './components/official/OfficialWorkspace';
 import { ContractorWorkspace } from './components/contractor/ContractorWorkspace';
 import { PolicymakerWorkspace } from './components/policymaker/PolicymakerWorkspace';
+import { SanctioningAuthorityWorkspace } from './components/sanctioning_authority/SanctioningAuthorityWorkspace';
 import { NGOWorkspace } from './components/ngo/NGOWorkspace';
 import { TransparencyPortal } from './components/transparency/TransparencyPortal';
 import { ProjectDetailModal } from './components/project/ProjectDetailModal';
@@ -19,15 +21,18 @@ import { FloatingAssistant } from './components/common/FloatingAssistant';
 import { UserRole } from './types/domain';
 
 const AppContent: React.FC = () => {
-  const { currentUser, isAuthenticated, logout } = useAuth();
+  const { currentUser, isAuthenticated, isAdminPreview } = useAuth();
 
-  // Public Transparency toggle state (allows viewing public portal even without logging in or while logged in)
+  // Public Transparency toggle state
   const [isPublicPortalActive, setIsPublicPortalActive] = useState<boolean>(false);
 
   // Floating Assistant state
   const [isAssistantOpen, setIsAssistantOpen] = useState<boolean>(false);
 
-  // Custom event listener for navigation inside the assistant
+  // Persona Switcher Modal state
+  const [isPersonaSwitcherOpen, setIsPersonaSwitcherOpen] = useState<boolean>(false);
+
+  // Custom event listener for navigation
   useEffect(() => {
     const handleTransparencyNav = () => {
       setIsPublicPortalActive(true);
@@ -52,8 +57,6 @@ const AppContent: React.FC = () => {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [registerRole, setRegisterRole] = useState<UserRole>('CITIZEN');
 
-  const [isDemoLoginOpen, setIsDemoLoginOpen] = useState(false);
-
   // Shared Global Modals
   const [modalProjectId, setModalProjectId] = useState<string | null>(null);
   const [activeRequestObj, setActiveRequestObj] = useState<any | null>(null);
@@ -63,17 +66,7 @@ const AppContent: React.FC = () => {
   };
 
   const handleOpenToken = (tokenId: string) => {
-    setModalProjectId('PRJ-DEMO-001');
-  };
-
-  const handleOpenQuickDemo = (demoId: 'DEMO-001' | 'DEMO-002' | 'DEMO-003') => {
-    if (demoId === 'DEMO-001') {
-      setModalProjectId('PRJ-DEMO-001');
-    } else if (demoId === 'DEMO-002') {
-      setModalProjectId('PRJ-DEMO-002');
-    } else if (demoId === 'DEMO-003') {
-      setModalProjectId('PRJ-DEMO-003');
-    }
+    // If project is linked, view it
   };
 
   const handleOpenLoginModal = (preferredRole?: UserRole) => {
@@ -99,9 +92,7 @@ const AppContent: React.FC = () => {
         <LandingPage
           onOpenLogin={handleOpenLoginModal}
           onOpenRegister={handleOpenRegisterModal}
-          onOpenDemoLogin={() => setIsDemoLoginOpen(true)}
           onOpenPublicTransparency={() => setIsPublicPortalActive(true)}
-          onOpenQuickDemo={handleOpenQuickDemo}
           onOpenHelpSupport={() => setIsAssistantOpen(true)}
         />
       );
@@ -109,6 +100,8 @@ const AppContent: React.FC = () => {
 
     // 3. Authenticated: Render the exact workspace assigned to the user's role
     switch (currentUser.role) {
+      case 'ADMIN':
+        return <AdminWorkspace />;
       case 'CITIZEN':
         return (
           <CitizenWorkspace
@@ -138,6 +131,13 @@ const AppContent: React.FC = () => {
             onOpenToken={handleOpenToken}
           />
         );
+      case 'SANCTIONING_AUTHORITY':
+        return (
+          <SanctioningAuthorityWorkspace
+            onOpenProject={handleOpenProject}
+            onOpenToken={handleOpenToken}
+          />
+        );
       case 'NGO':
         return <NGOWorkspace onOpenProject={handleOpenProject} />;
       case 'PUBLIC_VIEWER':
@@ -148,11 +148,18 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+      {/* Persistent Admin Preview Indicator Banner */}
+      {isAdminPreview && (
+        <AdminPreviewBanner
+          onOpenPersonaSwitcher={() => setIsPersonaSwitcherOpen(true)}
+        />
+      )}
+
+      {/* Main Global Header */}
       <Header
         onOpenLogin={handleOpenLoginModal}
         onOpenRegister={handleOpenRegisterModal}
-        onOpenDemoLogin={() => setIsDemoLoginOpen(true)}
-        onOpenQuickDemo={handleOpenQuickDemo}
+        onOpenPersonaSwitcher={() => setIsPersonaSwitcherOpen(true)}
         isPublicPortalView={isPublicPortalActive}
         onTogglePublicPortal={() => setIsPublicPortalActive(!isPublicPortalActive)}
         onNavigateHome={() => {
@@ -167,7 +174,7 @@ const AppContent: React.FC = () => {
       <footer className="bg-slate-900 text-slate-400 text-xs py-6 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-emerald-400">CFC-2026</span>
+            <span className="font-bold text-emerald-400">JanDrishti</span>
             <span>•</span>
             <span>Public Development Intelligence & Transparency Platform</span>
           </div>
@@ -194,7 +201,6 @@ const AppContent: React.FC = () => {
             if (r) setRegisterRole(r);
             setIsRegisterOpen(true);
           }}
-          onSwitchToDemoLogin={() => setIsDemoLoginOpen(true)}
         />
       )}
 
@@ -211,21 +217,14 @@ const AppContent: React.FC = () => {
             if (r) setLoginRole(r);
             setIsLoginOpen(true);
           }}
-          onSwitchToDemoLogin={() => setIsDemoLoginOpen(true)}
         />
       )}
 
-      {/* Demo Login Modal */}
-      {isDemoLoginOpen && (
-        <DemoLoginModal
-          isOpen={isDemoLoginOpen}
-          onClose={() => {
-            setIsDemoLoginOpen(false);
-            setIsPublicPortalActive(false);
-          }}
-          onSelectRole={() => {
-            setIsPublicPortalActive(false);
-          }}
+      {/* Persona Switcher Modal (Admin Preview) */}
+      {isPersonaSwitcherOpen && (
+        <PersonaSwitcherModal
+          isOpen={isPersonaSwitcherOpen}
+          onClose={() => setIsPersonaSwitcherOpen(false)}
         />
       )}
 

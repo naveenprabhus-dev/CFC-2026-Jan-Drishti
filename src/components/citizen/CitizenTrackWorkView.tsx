@@ -27,7 +27,7 @@ export const CitizenTrackWorkView: React.FC<CitizenTrackWorkViewProps> = ({
   onOpenProject,
 }) => {
   const { t } = useLanguage();
-  const [searchTokenInput, setSearchTokenInput] = useState(initialTokenId || 'WT-DEMO-001');
+  const [searchTokenInput, setSearchTokenInput] = useState(initialTokenId || '');
   const [activeToken, setActiveToken] = useState<WorkToken | null>(null);
   const [matchedRequest, setMatchedRequest] = useState<CitizenRequest | null>(null);
   const [matchedProject, setMatchedProject] = useState<Project | null>(null);
@@ -35,7 +35,7 @@ export const CitizenTrackWorkView: React.FC<CitizenTrackWorkViewProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadTokenDetails = async (tokenIdToLoad: string) => {
-    if (!tokenIdToLoad.trim()) return;
+    if (!tokenIdToLoad || !tokenIdToLoad.trim()) return;
     setIsLoading(true);
     setErrorMsg('');
 
@@ -71,7 +71,7 @@ export const CitizenTrackWorkView: React.FC<CitizenTrackWorkViewProps> = ({
 
       if (token.projectId) {
         try {
-          const proj = await apiClient.getPublicProjectById(token.projectId);
+          const proj = await apiClient.getProjectById(token.projectId);
           setMatchedProject(proj);
         } catch {
           // Non-critical
@@ -90,10 +90,11 @@ export const CitizenTrackWorkView: React.FC<CitizenTrackWorkViewProps> = ({
     if (initialTokenId) {
       setSearchTokenInput(initialTokenId);
       loadTokenDetails(initialTokenId);
-    } else {
-      loadTokenDetails('WT-DEMO-001');
+    } else if (requests.length > 0 && requests[0].workTokenId) {
+      setSearchTokenInput(requests[0].workTokenId);
+      loadTokenDetails(requests[0].workTokenId);
     }
-  }, [initialTokenId]);
+  }, [initialTokenId, requests]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -232,30 +233,27 @@ export const CitizenTrackWorkView: React.FC<CitizenTrackWorkViewProps> = ({
         </button>
       </form>
 
-      {/* Quick Token Selector Pills */}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-slate-400 font-medium">Quick Demo Tokens:</span>
-        <button
-          type="button"
-          onClick={() => {
-            setSearchTokenInput('WT-DEMO-001');
-            loadTokenDetails('WT-DEMO-001');
-          }}
-          className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono hover:bg-emerald-100 transition cursor-pointer"
-        >
-          WT-DEMO-001 (Road Project)
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setSearchTokenInput('WT-DEMO-002');
-            loadTokenDetails('WT-DEMO-002');
-          }}
-          className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 font-mono hover:bg-amber-100 transition cursor-pointer"
-        >
-          WT-DEMO-002 (Bridge Repair)
-        </button>
-      </div>
+      {/* User's Active Issued Work Tokens */}
+      {requests.filter((r) => r.workTokenId).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-slate-400 font-medium">Your Active Tokens:</span>
+          {requests
+            .filter((r) => r.workTokenId)
+            .map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => {
+                  setSearchTokenInput(r.workTokenId!);
+                  loadTokenDetails(r.workTokenId!);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono hover:bg-emerald-100 transition cursor-pointer"
+              >
+                {r.workTokenId} ({r.title.slice(0, 20)}...)
+              </button>
+            ))}
+        </div>
+      )}
 
       {errorMsg && (
         <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">

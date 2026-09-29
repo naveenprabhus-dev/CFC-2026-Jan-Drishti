@@ -17,7 +17,7 @@ interface CitizenObservationViewProps {
 }
 
 export const CitizenObservationView: React.FC<CitizenObservationViewProps> = ({
-  initialProjectId = 'PRJ-DEMO-002',
+  initialProjectId = '',
   onBack,
   onOpenProject,
 }) => {
@@ -40,6 +40,9 @@ export const CitizenObservationView: React.FC<CitizenObservationViewProps> = ({
       try {
         const list = await apiClient.getProjects();
         setProjectsList(list);
+        if (!projectId && list.length > 0) {
+          setProjectId(list[0].id);
+        }
       } catch (err) {
         console.error('Failed to load project list:', err);
       }
@@ -49,15 +52,22 @@ export const CitizenObservationView: React.FC<CitizenObservationViewProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!comment.trim()) return;
+    if (!comment.trim() || !projectId) return;
 
     setIsSubmitting(true);
     try {
+      const sentiment: 'EXCELLENT' | 'SATISFACTORY' | 'CONCERN_NOTED' | 'CRITICAL_HAZARD' =
+        divergenceSignal === 'PROGRESSING_WELL'
+          ? 'EXCELLENT'
+          : divergenceSignal === 'WORK_HALTED'
+          ? 'CRITICAL_HAZARD'
+          : 'CONCERN_NOTED';
+
       const result = await apiClient.submitCommunityObservation({
         projectId,
-        comment: comment.trim(),
-        photoUrl: photoUrl.trim() || undefined,
-        divergenceSignal,
+        description: comment.trim(),
+        photoUrls: photoUrl.trim() ? [photoUrl.trim()] : undefined,
+        sentimentRating: sentiment,
       });
 
       setRecentObservations((prev) => [result, ...prev]);
@@ -254,9 +264,8 @@ export const CitizenObservationView: React.FC<CitizenObservationViewProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-xs text-slate-800">
-                  Aravind Swaminathan
+                  Citizen Observation
                 </span>
-                <span className="text-[10px] text-slate-400">PRJ-DEMO-002</span>
               </div>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                 {t('poorQualitySignal')}

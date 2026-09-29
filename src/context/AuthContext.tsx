@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { UserSession, UserRole, AppNotification } from '../types/domain';
-import { apiClient, setActiveUserId } from '../services/api';
+import { apiClient, setActiveSession, setActiveUserId } from '../services/api';
 import { useLanguage } from './LanguageContext';
-import { LanguageCode } from '../i18n/translations';
+import { LanguageCode, SUPPORTED_LANGUAGES } from '../i18n/translations';
 
 interface RegisterPayload {
+  id?: string;
   name: string;
   email: string;
   role: UserRole;
@@ -14,7 +15,7 @@ interface RegisterPayload {
   designation?: string;
   phone?: string;
   password?: string;
-  primaryLanguage?: LanguageCode;
+  primaryLanguage?: string;
   aadhaarNumber?: string;
   homeState?: string;
   homeDistrict?: string;
@@ -25,25 +26,30 @@ interface RegisterPayload {
 interface AuthContextType {
   currentUser: UserSession | null;
   isAuthenticated: boolean;
-  isDemoAccount: boolean;
+  isAdmin: boolean;
+  isAdminPreview: boolean;
+  actualAdminId: string | null;
   allUsers: UserSession[];
+  availableStakeholders: UserSession[];
   login: (email: string, password?: string, role?: string) => Promise<UserSession>;
-  loginDemo: (userIdOrRole: string) => Promise<UserSession>;
   register: (payload: RegisterPayload) => Promise<UserSession>;
+  startAdminPreview: (targetUserId: string) => Promise<UserSession>;
+  stopAdminPreview: () => Promise<UserSession>;
   logout: () => void;
-  switchUser: (userId: string) => void;
-  switchRole: (role: UserRole) => void;
+  refreshUsers: () => Promise<void>;
   notifications: AppNotification[];
   unreadCount: number;
   refreshNotifications: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
-  resetDemo: () => Promise<void>;
+  resetDatabase: () => Promise<void>;
   isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'cfc_auth_user_id';
+const STORAGE_USER_ID = 'cfc_auth_user_id';
+const STORAGE_ADMIN_PREVIEW = 'cfc_admin_preview';
+const STORAGE_ACTUAL_ADMIN_ID = 'cfc_actual_admin_id';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { setLanguage } = useLanguage();
@@ -52,21 +58,58 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const applyUserLanguage = (user: UserSession) => {
+    if (user.primaryLanguage && SUPPORTED_LANGUAGES.some((l) => l.code === user.primaryLanguage)) {
+      setLanguage(user.primaryLanguage as LanguageCode);
+    }
+  };
+
   const fetchUsersAndNotifications = async () => {
     try {
       const users = await apiClient.getUsers();
       setAllUsers(users);
 
       // Check persisted session
-      const savedUserId = localStorage.getItem(STORAGE_KEY);
+      const savedUserId = localStorage.getItem(STORAGE_USER_ID);
+      const isPreview = localStorage.getItem(STORAGE_ADMIN_PREVIEW) === 'true';
+      const actualAdminId = localStorage.getItem(STORAGE_ACTUAL_ADMIN_ID) || 'admin-001';
+
       if (savedUserId) {
-        const found = users.find((u) => u.id === savedUserId);
+        const found = users.find((u) => u.id.toLowerCase() === savedUserId.toLowerCase());
         if (found) {
-          setCurrentUser(found);
-          setActiveUserId(found.id);
-          if (found.primaryLanguage) {
-            setLanguage(found.primaryLanguage as LanguageCode);
+          if (isPreview) {
+            const adminUser = users.find((u) => u.id.toLowerCase() === actualAdminId.toLowerCase());
+            const previewSession: UserSession = {
+              ...found,
+              isPreviewSession: true,
+              actualAdminId: adminUser?.id || actualAdminId,
+              actualAdminName: adminUser?.name || 'Administrator',
+            };
+            setCurrentUser(previewSession);
+            setActiveSession(found.id, actualAdminId, true);
+            applyUserLanguage(found);
+          } else {
+            setCurrentUser(found);
+            setActiveSession(found.id);
+            applyUserLanguage(found);
           }
+        } else {
+          // If saved user is not found, fallback to default admin
+          const defaultAdmin = users.find((u) => u.role === 'ADMIN') || users[0];
+          if (defaultAdmin) {
+            setCurrentUser(defaultAdmin);
+            setActiveSession(defaultAdmin.id);
+            applyUserLanguage(defaultAdmin);
+          }
+        }
+      } else {
+        // Automatically set admin on fresh launch
+        const defaultAdmin = users.find((u) => u.role === 'ADMIN') || users[0];
+        if (defaultAdmin) {
+          setCurrentUser(defaultAdmin);
+          setActiveSession(defaultAdmin.id);
+          localStorage.setItem(STORAGE_USER_ID, defaultAdmin.id);
+          applyUserLanguage(defaultAdmin);
         }
       }
 
@@ -83,38 +126,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchUsersAndNotifications();
   }, []);
 
+  const refreshUsers = async () => {
+    try {
+      const users = await apiClient.getUsers();
+      setAllUsers(users);
+    } catch (err) {
+      console.warn('Failed to refresh users:', err);
+    }
+  };
+
   const login = async (email: string, password?: string, role?: string): Promise<UserSession> => {
     setIsLoading(true);
     try {
       const user = await apiClient.login({ email, password, role });
       setCurrentUser(user);
-      setActiveUserId(user.id);
-      localStorage.setItem(STORAGE_KEY, user.id);
-      if (user.primaryLanguage) {
-        setLanguage(user.primaryLanguage as LanguageCode);
-      }
+      setActiveSession(user.id);
+      localStorage.setItem(STORAGE_USER_ID, user.id);
+      localStorage.removeItem(STORAGE_ADMIN_PREVIEW);
+      localStorage.removeItem(STORAGE_ACTUAL_ADMIN_ID);
+      applyUserLanguage(user);
       await refreshNotifications();
-      return user;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loginDemo = async (userIdOrRole: string): Promise<UserSession> => {
-    setIsLoading(true);
-    try {
-      const isExplicitUserId = allUsers.some((u) => u.id === userIdOrRole) || userIdOrRole.includes('-');
-      const user = await apiClient.loginDemo({
-        userId: isExplicitUserId ? userIdOrRole : undefined,
-        role: !isExplicitUserId ? userIdOrRole : undefined,
-      });
-      setCurrentUser(user);
-      setActiveUserId(user.id);
-      localStorage.setItem(STORAGE_KEY, user.id);
-      if (user.primaryLanguage) {
-        setLanguage(user.primaryLanguage as LanguageCode);
-      }
-      await refreshNotifications();
+      await refreshUsers();
       return user;
     } finally {
       setIsLoading(false);
@@ -125,12 +157,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoading(true);
     try {
       const newUser = await apiClient.register(payload);
-      setCurrentUser(newUser);
-      setActiveUserId(newUser.id);
-      localStorage.setItem(STORAGE_KEY, newUser.id);
-      if (newUser.primaryLanguage) {
-        setLanguage(newUser.primaryLanguage as LanguageCode);
-      }
       // Reload users list
       const users = await apiClient.getUsers();
       setAllUsers(users);
@@ -141,29 +167,54 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const startAdminPreview = async (targetUserId: string): Promise<UserSession> => {
+    setIsLoading(true);
+    try {
+      const res = await apiClient.startAdminPreview(targetUserId);
+      const session = res.session;
+      
+      setCurrentUser(session);
+      setActiveSession(session.id, session.actualAdminId, true);
+      
+      localStorage.setItem(STORAGE_USER_ID, session.id);
+      localStorage.setItem(STORAGE_ADMIN_PREVIEW, 'true');
+      localStorage.setItem(STORAGE_ACTUAL_ADMIN_ID, session.actualAdminId || 'admin-001');
+
+      applyUserLanguage(session);
+      await refreshNotifications();
+      return session;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const stopAdminPreview = async (): Promise<UserSession> => {
+    setIsLoading(true);
+    try {
+      const currentPreviewUserId = currentUser?.id;
+      const adminUser = await apiClient.stopAdminPreview(currentPreviewUserId);
+
+      setCurrentUser(adminUser);
+      setActiveSession(adminUser.id);
+
+      localStorage.setItem(STORAGE_USER_ID, adminUser.id);
+      localStorage.removeItem(STORAGE_ADMIN_PREVIEW);
+      localStorage.removeItem(STORAGE_ACTUAL_ADMIN_ID);
+
+      applyUserLanguage(adminUser);
+      await refreshNotifications();
+      return adminUser;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = () => {
     setCurrentUser(null);
-    localStorage.removeItem(STORAGE_KEY);
-  };
-
-  const switchUser = (userId: string) => {
-    const user = allUsers.find((u) => u.id === userId);
-    if (user) {
-      setCurrentUser(user);
-      setActiveUserId(user.id);
-      localStorage.setItem(STORAGE_KEY, user.id);
-      refreshNotifications();
-    }
-  };
-
-  const switchRole = (role: UserRole) => {
-    const user = allUsers.find((u) => u.role === role);
-    if (user) {
-      setCurrentUser(user);
-      setActiveUserId(user.id);
-      localStorage.setItem(STORAGE_KEY, user.id);
-      refreshNotifications();
-    }
+    setActiveSession('');
+    localStorage.removeItem(STORAGE_USER_ID);
+    localStorage.removeItem(STORAGE_ADMIN_PREVIEW);
+    localStorage.removeItem(STORAGE_ACTUAL_ADMIN_ID);
   };
 
   const refreshNotifications = async () => {
@@ -186,40 +237,52 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const resetDemo = async () => {
+  const resetDatabase = async () => {
     setIsLoading(true);
     try {
-      await apiClient.resetDemoDatabase();
+      await apiClient.resetDatabase();
+      localStorage.removeItem(STORAGE_ADMIN_PREVIEW);
+      localStorage.removeItem(STORAGE_ACTUAL_ADMIN_ID);
       await fetchUsersAndNotifications();
     } catch (err) {
-      console.error('Failed to reset demo database:', err);
+      console.error('Failed to reset database:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
   const isAuthenticated = currentUser !== null;
-  const isDemoAccount = currentUser?.isDemo === true;
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const isAdminPreview = currentUser?.isPreviewSession === true;
+  const actualAdminId = currentUser?.actualAdminId || (isAdmin ? currentUser?.id : null);
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  // Real active users in database excluding the administrator
+  const availableStakeholders = allUsers.filter(
+    (u) => u.role !== 'ADMIN' && u.status !== 'inactive'
+  );
 
   return (
     <AuthContext.Provider
       value={{
         currentUser,
         isAuthenticated,
-        isDemoAccount,
+        isAdmin,
+        isAdminPreview,
+        actualAdminId,
         allUsers,
+        availableStakeholders,
         login,
-        loginDemo,
         register,
+        startAdminPreview,
+        stopAdminPreview,
         logout,
-        switchUser,
-        switchRole,
+        refreshUsers,
         notifications,
         unreadCount,
         refreshNotifications,
         markRead,
-        resetDemo,
+        resetDatabase,
         isLoading,
       }}
     >

@@ -34,7 +34,7 @@ export async function analyzeCitizenComplaint(params: {
   photoDataUrl?: string;
 }): Promise<AIProblemIntelligence> {
   const correlationId = `AI-REQ-${Date.now()}`;
-  const modelName = 'gemini-3.1-flash-lite';
+  const modelName = 'gemini-3.8-flash';
 
   const defaultSuggestedDepts: Record<string, string> = {
     ROAD_INFRASTRUCTURE: 'Public Works Department (PWD - Roads & Highways)',
@@ -244,7 +244,7 @@ export async function verifyContractorEvidence(params: {
   communityObservations?: string[];
   isReworkSubmission?: boolean;
 }): Promise<AIEvidenceVerification> {
-  const modelName = 'gemini-3.1-flash-lite';
+  const modelName = 'gemini-3.8-flash';
   const correlationId = `AI-EVID-${Date.now()}`;
 
   if (aiClient && apiKey) {
@@ -381,7 +381,7 @@ export async function analyzeNGOEvidence(params: {
   analyzedAt: string;
   disclaimer: string;
 }> {
-  const modelName = 'gemini-3.1-flash-lite';
+  const modelName = 'gemini-3.8-flash';
   const correlationId = `AI-NGO-${Date.now()}`;
   const disclaimer = 'AI Analysis: Advisory only. AI cannot sanction, approve, or reject civil work claims. Consequential decisions are reserved exclusively for authorized Government Officials.';
 
@@ -495,7 +495,7 @@ export async function queryPolicymakerIntelligence(params: {
   modelUsed: string;
   disclaimer: string;
 }> {
-  const modelName = 'gemini-3.1-flash-lite';
+  const modelName = 'gemini-3.8-flash';
   const correlationId = `AI-POLICY-${Date.now()}`;
   const disclaimer =
     'AI Policy Intelligence: Advisory decision-support synthesis only. AI cannot make binding policy, allocation, or legal determinations. Authoritative decisions remain with authorized human policymakers.';
@@ -607,17 +607,17 @@ Return valid JSON with:
   if (q.includes('gap') || q.includes('need') || q.includes('drainage') || q.includes('water') || q.includes('road')) {
     return {
       answer:
-        'Cross-referencing citizen grievance intake with active capital schemes reveals a critical service gap in Ward 14 (Central Chennai) and the Velachery-Tambaram arterial link. High recurring stormwater flooding complaints coincide with inadequate outfall drainage capacity during pre-monsoon surges.',
+        'Cross-referencing citizen grievance intake with active capital schemes reveals local infrastructure service gaps across monitored jurisdictions. High recurring stormwater and roadway complaints coincide with heavy traffic and seasonal rainfall.',
       keyInsights: [
-        'Citizen request frequency in road and stormwater sectors exceeds district average by 42%.',
-        'Arterial culvert structural erosion (PRJ-DEMO-003) represents an urgent flood prevention bottleneck.',
-        'Community ground reports indicate localized waterlogging near educational institutions.',
+        'Citizen request frequency in road and stormwater sectors reflects localized infrastructure demand.',
+        'Arterial culvert structural maintenance represents a key flood prevention priority.',
+        'Community ground reports indicate localized drainage bottlenecks needing municipal attention.',
       ],
       recommendedActions: [
-        'Sanction emergency Phase 2 outfall channel deepening under State Disaster Mitigation Fund (NDMF).',
+        'Sanction emergency outfall channel deepening under Disaster Mitigation Funds where appropriate.',
         'Fast-track PWD Bridges division tender issuance for precast culvert modular replacement.',
       ],
-      citedProjects: ['PRJ-DEMO-002', 'PRJ-DEMO-003'],
+      citedProjects: [],
       confidence: 0.94,
       modelUsed: `${modelName} (Strategic Decision Engine Fallback)`,
       disclaimer,
@@ -626,17 +626,17 @@ Return valid JSON with:
 
   return {
     answer:
-      'State infrastructure health across monitored districts shows steady progression with 1 completed asset (Anna Salai Arterial), 1 active rework remediation (Gandhi Nagar Sector 3), and 1 newly sanctioned emergency bridge culvert (Tambaram-Velachery Link). Overall digital thread integrity remains 100% verified across all work tokens.',
+      'State infrastructure health across monitored districts shows steady progression across registered capital works. Overall digital thread integrity remains verified across active work tokens.',
     keyInsights: [
-      'Digital thread provenance links all 3 active projects directly to citizen grievance originators.',
+      'Digital thread provenance links active projects directly to citizen grievance originators.',
       'Quality divergence is actively managed through automated AI pre-screening and binding official inspections.',
       'Independent NGO civic audit participation provides verifiable ground-truth validation.',
     ],
     recommendedActions: [
       'Maintain weekly policy review of delayed milestones and contractor rework compliance.',
-      'Review pre-monsoon drainage resilience index across Coimbatore North and Central Chennai.',
+      'Review pre-monsoon drainage resilience index across authorized municipal districts.',
     ],
-    citedProjects: ['PRJ-DEMO-001', 'PRJ-DEMO-002', 'PRJ-DEMO-003'],
+    citedProjects: [],
     confidence: 0.93,
     modelUsed: `${modelName} (Strategic Decision Engine Fallback)`,
     disclaimer,
@@ -986,7 +986,7 @@ export async function translateText(params: {
   text: string;
   targetLanguage: string;
 }): Promise<string> {
-  const modelName = 'gemini-3.1-flash-lite';
+  const modelName = 'gemini-3.8-flash';
   if (!params.text.trim()) return '';
   if (params.targetLanguage === 'en' || !params.targetLanguage) return params.text;
 

@@ -16,13 +16,16 @@ import {
   ChevronDown,
   LogOut,
   ShieldCheck,
+  Users,
+  ShieldAlert,
+  ArrowLeft,
+  Landmark,
 } from 'lucide-react';
 
 interface HeaderProps {
   onOpenLogin?: (preferredRole?: UserRole) => void;
   onOpenRegister?: (preferredRole?: UserRole) => void;
-  onOpenDemoLogin?: () => void;
-  onOpenQuickDemo?: (demoId: 'DEMO-001' | 'DEMO-002' | 'DEMO-003') => void;
+  onOpenPersonaSwitcher?: () => void;
   isPublicPortalView?: boolean;
   onTogglePublicPortal?: () => void;
   onNavigateHome?: () => void;
@@ -32,8 +35,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   onOpenLogin,
   onOpenRegister,
-  onOpenDemoLogin,
-  onOpenQuickDemo,
+  onOpenPersonaSwitcher,
   isPublicPortalView = false,
   onTogglePublicPortal,
   onNavigateHome,
@@ -42,12 +44,14 @@ export const Header: React.FC<HeaderProps> = ({
   const {
     currentUser,
     isAuthenticated,
-    isDemoAccount,
+    isAdmin,
+    isAdminPreview,
     notifications,
     unreadCount,
     markRead,
-    resetDemo,
+    resetDatabase,
     logout,
+    stopAdminPreview,
     isLoading,
   } = useAuth();
 
@@ -61,10 +65,14 @@ export const Header: React.FC<HeaderProps> = ({
 
   const getRoleIcon = (role: UserRole) => {
     switch (role) {
+      case 'ADMIN':
+        return <ShieldAlert className="w-4 h-4 text-emerald-600" />;
       case 'CITIZEN':
         return <UserCheck className="w-4 h-4 text-sky-600" />;
       case 'OFFICIAL':
         return <Shield className="w-4 h-4 text-emerald-600" />;
+      case 'SANCTIONING_AUTHORITY':
+        return <Landmark className="w-4 h-4 text-indigo-600" />;
       case 'CONTRACTOR':
         return <HardHat className="w-4 h-4 text-amber-600" />;
       case 'POLICYMAKER':
@@ -79,10 +87,14 @@ export const Header: React.FC<HeaderProps> = ({
 
   const getRoleWorkspaceTitle = (role: UserRole) => {
     switch (role) {
+      case 'ADMIN':
+        return 'Admin Workspace';
       case 'CITIZEN':
         return t('citizenHome');
       case 'OFFICIAL':
         return t('officialDashboard');
+      case 'SANCTIONING_AUTHORITY':
+        return 'Sanctioning Authority Workspace';
       case 'CONTRACTOR':
         return t('contractorPortal');
       case 'POLICYMAKER':
@@ -96,19 +108,22 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const handleReset = async () => {
-    await resetDemo();
+    await resetDatabase();
     setResetSuccess(true);
     setTimeout(() => setResetSuccess(false), 3000);
   };
 
+  // Only Admin or Admin in preview can access persona switching
+  const canSwitchPersona = isAdmin || isAdminPreview;
+
   return (
     <>
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
-        {/* Top Banner */}
+        {/* Top Institutional Banner */}
         <div className="bg-slate-900 text-slate-200 text-xs px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span className="font-bold tracking-wider text-emerald-400">CFC-2026</span>
+            <span className="font-bold tracking-wider text-emerald-400">JanDrishti CFC-2026</span>
             <span className="hidden sm:inline text-slate-400">|</span>
             <span className="hidden sm:inline font-medium text-slate-300">
               {t('appTitle')}
@@ -118,29 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-3 text-[11px]">
             <span className="text-slate-400 italic">"AI ASSISTS; HUMANS GOVERN."</span>
             <span className="text-slate-600">|</span>
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="text-slate-400">Sample Projects:</span>
-              <button
-                onClick={() => onOpenQuickDemo && onOpenQuickDemo('DEMO-001')}
-                className="text-emerald-300 hover:text-emerald-200 underline cursor-pointer"
-              >
-                PRJ-DEMO-001
-              </button>
-              <span className="text-slate-600">·</span>
-              <button
-                onClick={() => onOpenQuickDemo && onOpenQuickDemo('DEMO-002')}
-                className="text-amber-300 hover:text-amber-200 underline cursor-pointer"
-              >
-                PRJ-DEMO-002
-              </button>
-              <span className="text-slate-600">·</span>
-              <button
-                onClick={() => onOpenQuickDemo && onOpenQuickDemo('DEMO-003')}
-                className="text-purple-300 hover:text-purple-200 underline cursor-pointer"
-              >
-                PRJ-DEMO-003
-              </button>
-            </div>
+            <span className="text-slate-400 font-mono">Deterministic Public Governance</span>
           </div>
         </div>
 
@@ -153,7 +146,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center gap-3 cursor-pointer select-none group"
             >
               <div className="w-10 h-10 rounded-xl bg-linear-to-br from-emerald-600 to-teal-700 text-white flex items-center justify-center font-black text-lg shadow-sm group-hover:scale-105 transition">
-                CFC
+                JD
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -192,7 +185,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
 
-              {/* GLOBAL MULTILINGUAL APPLICATION LANGUAGE SELECTOR */}
+              {/* Multilingual Selector */}
               <div className="relative">
                 <button
                   type="button"
@@ -234,17 +227,45 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
 
-              {/* Reset Demo Button */}
-              <button
-                type="button"
-                onClick={handleReset}
-                disabled={isLoading}
-                className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg transition cursor-pointer"
-                title="Reset database to clean initial state"
-              >
-                <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                <span>{resetSuccess ? 'Reset Complete!' : t('resetData')}</span>
-              </button>
+              {/* Persistent Admin Persona Switcher Button (Admin Only) */}
+              {canSwitchPersona && onOpenPersonaSwitcher && (
+                <button
+                  type="button"
+                  onClick={onOpenPersonaSwitcher}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-slate-950 bg-amber-400 hover:bg-amber-300 border border-amber-500 rounded-xl transition cursor-pointer shadow-sm"
+                  title="Switch to another real database persona"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Switch Persona</span>
+                </button>
+              )}
+
+              {/* Admin Return Button if in preview */}
+              {isAdminPreview && (
+                <button
+                  type="button"
+                  onClick={() => stopAdminPreview()}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition cursor-pointer shadow-2xs"
+                  title="Return to Admin Workspace"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Return to Admin</span>
+                </button>
+              )}
+
+              {/* Reset Database Button (Admin only) */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={isLoading}
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg transition cursor-pointer"
+                  title="Reset database to clean initial state"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                  <span>{resetSuccess ? 'Reset Complete!' : 'Clean DB'}</span>
+                </button>
+              )}
 
               {/* AUTHENTICATED CONTROLS */}
               {isAuthenticated && currentUser ? (
@@ -368,17 +389,17 @@ export const Header: React.FC<HeaderProps> = ({
                             <span>{t('profile')}</span>
                           </button>
 
-                          {onOpenDemoLogin && (
+                          {canSwitchPersona && onOpenPersonaSwitcher && (
                             <button
                               type="button"
                               onClick={() => {
                                 setShowUserMenu(false);
-                                onOpenDemoLogin();
+                                onOpenPersonaSwitcher();
                               }}
-                              className="w-full flex items-center gap-2 p-2 rounded-xl text-left text-xs text-emerald-800 hover:bg-emerald-50 transition cursor-pointer"
+                              className="w-full flex items-center gap-2 p-2 rounded-xl text-left text-xs text-amber-900 bg-amber-50 hover:bg-amber-100 transition cursor-pointer font-bold"
                             >
-                              <Sparkles className="w-4 h-4 text-emerald-600" />
-                              <span>{t('switchRole')}</span>
+                              <Users className="w-4 h-4 text-amber-600" />
+                              <span>Switch Persona</span>
                             </button>
                           )}
 
@@ -422,15 +443,6 @@ export const Header: React.FC<HeaderProps> = ({
                     className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                   >
                     {t('login')}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={onOpenDemoLogin}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>{t('switchRole')}</span>
                   </button>
 
                   <button

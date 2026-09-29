@@ -51,8 +51,8 @@ export const CitizenWorkspace: React.FC<CitizenWorkspaceProps> = ({
   const [selectedRequestModal, setSelectedRequestModal] = useState<CitizenRequest | null>(null);
 
   // Parameter for Track Work & Observation
-  const [trackTokenId, setTrackTokenId] = useState<string>('WT-DEMO-001');
-  const [observationProjectId, setObservationProjectId] = useState<string>('PRJ-DEMO-002');
+  const [trackTokenId, setTrackTokenId] = useState<string>('');
+  const [observationProjectId, setObservationProjectId] = useState<string>('');
 
   const fetchRequests = async () => {
     setIsLoading(true);

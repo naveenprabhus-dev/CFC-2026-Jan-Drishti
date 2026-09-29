@@ -27,8 +27,28 @@ export const AssignContractorModal: React.FC<AssignContractorModalProps> = ({
   onSuccess,
 }) => {
   const { t } = useLanguage();
+
+  const allContractors = contractors.filter((u) => u.role === 'CONTRACTOR');
+  const filteredContractors = allContractors.filter((c) => {
+    const prjDist = (project.district || '').toLowerCase();
+    const prjState = (project.state || '').toLowerCase();
+    const cDist = (c.homeDistrict || '').toLowerCase();
+    const cState = (c.homeState || '').toLowerCase();
+    const cJuris = (c.jurisdiction || '').toLowerCase();
+    if (!prjDist && !prjState) return true;
+    if (cDist && prjDist && (cDist.includes(prjDist) || prjDist.includes(cDist))) return true;
+    if (cState && prjState && (cState.includes(prjState) || prjState.includes(cState))) return true;
+    if (cJuris) {
+      if (prjDist && cJuris.includes(prjDist)) return true;
+      if (prjState && cJuris.includes(prjState)) return true;
+      return false;
+    }
+    return true;
+  });
+  const displayContractors = filteredContractors.length > 0 ? filteredContractors : (allContractors.length > 0 ? allContractors : contractors);
+
   const [contractorId, setContractorId] = useState(
-    contractors.find((c) => c.role === 'CONTRACTOR')?.id || 'contractor-01'
+    displayContractors[0]?.id || 'contractor-01'
   );
   const [contractedAmount, setContractedAmount] = useState(
     Math.round(project.funding.sanctioned * 0.92)
@@ -120,13 +140,11 @@ export const AssignContractorModal: React.FC<AssignContractorModalProps> = ({
               className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
               required
             >
-              {contractors
-                .filter((u) => u.role === 'CONTRACTOR')
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.organization || c.name} ({c.jurisdiction || 'Class-1 PWD Enlisted'})
-                  </option>
-                ))}
+              {displayContractors.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.organization || c.name} ({c.jurisdiction || 'Class-1 PWD Enlisted'})
+                </option>
+              ))}
             </select>
           </div>
 

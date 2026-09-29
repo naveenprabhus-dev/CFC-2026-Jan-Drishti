@@ -203,10 +203,10 @@ export const ContractorWorkspace: React.FC<ContractorWorkspaceProps> = ({
               </span>
               <span className="text-slate-500 text-xs">|</span>
               <span className="text-slate-300 text-xs font-mono bg-slate-800/80 px-2.5 py-0.5 rounded border border-slate-700">
-                User ID: {currentUser?.id || 'cont-apex-01'}
+                User ID: {currentUser?.id || 'contractor'}
               </span>
               <span className="text-amber-200 text-xs font-semibold">
-                {currentUser?.organization || 'Apex Roads Infrastructure Ltd.'}
+                {currentUser?.organization || currentUser?.name || 'Registered Civil Contractor'}
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">

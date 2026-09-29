@@ -22,7 +22,7 @@ export const AuthorityScopeModal: React.FC<AuthorityScopeModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { currentUser, isDemoAccount } = useAuth();
+  const { currentUser, isAdminPreview } = useAuth();
 
   if (!isOpen || !currentUser) return null;
 
@@ -60,9 +60,9 @@ export const AuthorityScopeModal: React.FC<AuthorityScopeModalProps> = ({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h4 className="font-extrabold text-base text-slate-900 truncate">{currentUser.name}</h4>
-                {isDemoAccount && (
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-300">
-                    Demo Mode
+                {isAdminPreview && (
+                  <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 text-[10px] font-bold border border-amber-300">
+                    Admin Preview Session
                   </span>
                 )}
               </div>

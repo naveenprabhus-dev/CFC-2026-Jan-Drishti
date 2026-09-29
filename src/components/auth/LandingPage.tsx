@@ -39,18 +39,14 @@ import {
 interface LandingPageProps {
   onOpenLogin: (preferredRole?: UserRole) => void;
   onOpenRegister: (preferredRole?: UserRole) => void;
-  onOpenDemoLogin: () => void;
   onOpenPublicTransparency: () => void;
-  onOpenQuickDemo?: (demoId: 'DEMO-001' | 'DEMO-002' | 'DEMO-003') => void;
   onOpenHelpSupport?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenLogin,
   onOpenRegister,
-  onOpenDemoLogin,
   onOpenPublicTransparency,
-  onOpenQuickDemo,
   onOpenHelpSupport,
 }) => {
   const { language, setLanguage, t } = useLanguage();
@@ -194,14 +190,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </div>
 
-          {/* Quick Platform Status & Sandbox Entry */}
+          {/* Quick Platform Entry */}
           <div className="flex items-center gap-3">
             <button
-              onClick={onOpenDemoLogin}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition shadow-lg cursor-pointer"
+              onClick={() => onOpenLogin('CITIZEN')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition shadow-lg cursor-pointer"
             >
-              <Sparkles className="w-4 h-4" />
-              <span>{t('demoSandboxBtn') || 'Demo Sandbox (6 Roles)'}</span>
+              <UserCheck className="w-4 h-4" />
+              <span>{t('login') || 'Sign In to Workspace'}</span>
             </button>
             <button
               onClick={onOpenPublicTransparency}
@@ -372,27 +368,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </button>
           </form>
 
-          {/* Quick Sample Project Chips */}
+          {/* Transparency Search Helper */}
           <div className="pt-2 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
-            <span className="font-semibold text-slate-600">{t('quickProjectLookup') || 'Quick Sample Audits:'}</span>
-            <button
-              onClick={() => onOpenQuickDemo && onOpenQuickDemo('DEMO-001')}
-              className="px-3 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-mono font-medium transition cursor-pointer"
-            >
-              PRJ-DEMO-001 (Completed)
-            </button>
-            <button
-              onClick={() => onOpenQuickDemo && onOpenQuickDemo('DEMO-002')}
-              className="px-3 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-mono font-medium transition cursor-pointer"
-            >
-              PRJ-DEMO-002 (AI Discrepancy)
-            </button>
-            <button
-              onClick={() => onOpenQuickDemo && onOpenQuickDemo('DEMO-003')}
-              className="px-3 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 font-mono font-medium transition cursor-pointer"
-            >
-              PRJ-DEMO-003 (Funding Intel)
-            </button>
+            <span className="font-semibold text-slate-600">Search by Sanction Number, Work Token, or Location</span>
           </div>
         </div>
       </section>
@@ -664,8 +642,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </button>
               </li>
               <li>
-                <button onClick={onOpenDemoLogin} className="hover:text-amber-300 transition cursor-pointer">
-                  {t('demoSandboxBtn') || 'Demo Personas Sandbox'}
+                <button onClick={() => onOpenLogin('ADMIN')} className="hover:text-amber-300 transition cursor-pointer">
+                  Administrator Portal
                 </button>
               </li>
             </ul>

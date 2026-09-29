@@ -21,11 +21,13 @@ import {
 interface OfficialAITriageViewProps {
   requests: CitizenRequest[];
   onOpenTriageModal: (req: CitizenRequest) => void;
+  currentUser?: any;
 }
 
 export const OfficialAITriageView: React.FC<OfficialAITriageViewProps> = ({
   requests,
   onOpenTriageModal,
+  currentUser,
 }) => {
   const { t } = useLanguage();
   const pendingRequests = requests.filter((r) => r.status === 'SUBMITTED');
@@ -224,7 +226,7 @@ export const OfficialAITriageView: React.FC<OfficialAITriageViewProps> = ({
                   Ready to Issue Cryptographic Work Token?
                 </h4>
                 <p className="text-xs text-slate-500">
-                  Authorized action signed by K. Ramanathan (Chief Engineer)
+                  Authorized action signed by {currentUser?.name || 'Authorized Official'}{currentUser?.designation ? ` (${currentUser.designation})` : ''}
                 </p>
               </div>
 
