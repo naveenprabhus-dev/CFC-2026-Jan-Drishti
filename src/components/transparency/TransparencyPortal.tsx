@@ -3,6 +3,7 @@ import { apiClient } from '../../services/api';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { DigitalThreadBadge } from '../common/DigitalThreadBadge';
 import { EvidenceImage } from '../common/EvidenceImage';
+import { LifecycleTimeline } from '../common/LifecycleTimeline';
 import {
   Globe,
   Search,
@@ -713,57 +714,12 @@ export const TransparencyPortal: React.FC = () => {
               </button>
             </div>
 
-            {/* 7-STEP PUBLIC LIFECYCLE TIMELINE (Requested exact format) */}
-            <div className="p-5 bg-teal-50/50 border-b border-teal-100 overflow-x-auto">
-              <div className="min-w-max">
-                <span className="text-[10px] font-bold text-teal-800 uppercase tracking-wider block mb-2">
-                  Public Verification Lifecycle:
-                </span>
-                <div className="flex items-center gap-2 text-xs">
-                  {[
-                    { label: 'Need Identified', done: true },
-                    { label: 'Government Review', done: true },
-                    { label: 'Project', done: true },
-                    {
-                      label: 'Procurement',
-                      done: !!selectedProject.assignedAt || selectedProject.status !== 'PROPOSED',
-                    },
-                    {
-                      label: 'Execution',
-                      done:
-                        selectedProject.status === 'IN_PROGRESS' ||
-                        selectedProject.status === 'VERIFICATION_REQUIRED' ||
-                        selectedProject.status === 'COMPLETED' ||
-                        selectedProject.status === 'DELAYED',
-                    },
-                    {
-                      label: 'Verification',
-                      done:
-                        selectedProject.status === 'VERIFICATION_REQUIRED' ||
-                        selectedProject.status === 'COMPLETED',
-                    },
-                    { label: 'Completion', done: selectedProject.status === 'COMPLETED' },
-                  ].map((step, idx, arr) => (
-                    <React.Fragment key={step.label}>
-                      <div
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-[11px] ${
-                          step.done
-                            ? 'bg-teal-700 text-white shadow-2xs'
-                            : 'bg-white text-slate-400 border border-slate-200'
-                        }`}
-                      >
-                        {step.done ? (
-                          <Check className="w-3 h-3 stroke-[3]" />
-                        ) : (
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
-                        )}
-                        <span>{step.label}</span>
-                      </div>
-                      {idx < arr.length - 1 && <span className="text-slate-300 text-xs font-bold">→</span>}
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
+            {/* CANONICAL PUBLIC LIFECYCLE TIMELINE */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200">
+              <LifecycleTimeline
+                currentStage={selectedProject.status}
+                isReworkActive={selectedProject.status === 'DELAYED' || selectedProject.status === 'REWORK_REQUIRED'}
+              />
             </div>
 
             {/* Modal Body (Sanitized Public Information) */}

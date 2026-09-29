@@ -91,14 +91,56 @@ export function requireAuth(req: Request, res: Response): UserSession | null {
 export function requireAdmin(req: Request, res: Response): UserSession | null {
   const actor = requireAuth(req, res);
   if (!actor) return null;
-  if (actor.role !== 'ADMIN' || actor.isPreviewSession) {
-    res.status(403).json({
-      success: false,
-      error: { code: 'FORBIDDEN', message: 'Administrator privileges required.' },
-    });
-    return null;
+
+  // Direct administrator
+  if (actor.role === 'ADMIN') {
+    return actor;
   }
-  return actor;
+
+  // Administrator currently executing within a preview session
+  if (actor.isPreviewSession && actor.actualAdminId) {
+    const adminUser = dbStore.getUserById(actor.actualAdminId);
+    if (adminUser && adminUser.role === 'ADMIN' && adminUser.status !== 'inactive') {
+      return sanitizeUser(adminUser);
+    }
+  }
+
+  res.status(403).json({
+    success: false,
+    error: { code: 'FORBIDDEN', message: 'Administrator privileges required.' },
+  });
+  return null;
+}
+
+export function getAdminActorForPreview(req: Request, res: Response): UserSession | null {
+  const actor = getActorSession(req);
+
+  // 1. Direct Administrator session
+  if (actor && actor.role === 'ADMIN') {
+    return actor;
+  }
+
+  // 2. Administrator already in an active preview session switching personas
+  if (actor && actor.isPreviewSession && actor.actualAdminId) {
+    const adminUser = dbStore.getUserById(actor.actualAdminId);
+    if (adminUser && adminUser.role === 'ADMIN' && adminUser.status !== 'inactive') {
+      return sanitizeUser(adminUser);
+    }
+  }
+
+  // 3. If actor is unauthenticated (e.g. initial launch or quick persona exploration), resolve canonical administrator
+  if (!actor) {
+    const defaultAdmin = dbStore.getUserById(DEFAULT_ADMIN.id) || dbStore.getUsers().find((u) => u.role === 'ADMIN');
+    if (defaultAdmin && defaultAdmin.status !== 'inactive') {
+      return sanitizeUser(defaultAdmin);
+    }
+  }
+
+  res.status(403).json({
+    success: false,
+    error: { code: 'FORBIDDEN', message: 'Administrator privileges required to start or switch admin preview.' },
+  });
+  return null;
 }
 
 // Helper to filter items based on actor's authority scope & operational jurisdiction
@@ -170,7 +212,7 @@ function filterByJurisdiction(items: any[], actor?: UserSession | null, location
 
 function generateGovernanceDocument(project: Project, docType: GovernanceDocType, actor: UserSession, extra: any = {}): GovernanceDocument {
   const docId = `DOC-${docType}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const refPrefix = docType === 'CONTRACTOR_RECOMMENDATION' ? 'REC' : docType === 'FINANCIAL_SANCTION_ORDER' ? 'SAN' : 'AUTH';
+  const refPrefix = docType === 'CONTRACTOR_RECOMMENDATION' ? 'REC' : docType === 'FINANCIAL_SANCTION_ORDER' ? 'SAN' : docType === 'FUNDING_AUTHORIZATION_ORDER' ? 'AUTH' : 'WO';
   const refNumber = `REF-${refPrefix}-${(project.state || 'IN').toUpperCase()}-${project.id}-${Date.now().toString().slice(-4)}`;
   
   let title = '';
@@ -205,13 +247,25 @@ function generateGovernanceDocument(project: Project, docType: GovernanceDocType
     generatedContent.contractorName = contractorName;
     generatedContent.budgetHead = project.funding.budgetHead || 'Capital Outlay on Urban Infrastructure Development';
     generatedContent.findings = extra.reason || project.officialReviewNotes || 'Verified situation, Technical plans and Competitive bidding details are in order.';
-  } else {
+  } else if (docType === 'FUNDING_AUTHORIZATION_ORDER') {
     title = 'FUNDING / TREASURY AUTHORIZATION ORDER';
     amount = project.funding.sanctioned || 0;
     generatedContent.authorizedAmount = amount;
     generatedContent.contractorName = contractorName;
-    generatedContent.sanctionRef = extra.sanctionRef || 'REF-SAN-ACTIVE';
+    generatedContent.sanctionRef = extra.sanctionRef || project.sanctionNumber || 'REF-SAN-ACTIVE';
     generatedContent.conditions = extra.reason || 'Funding release authorized for execution phase; compliance reports mandatory at each milestone.';
+  } else {
+    title = 'OFFICIAL WORK ORDER / NOTICE TO PROCEED';
+    amount = project.recommendedAmount || project.funding.sanctioned || 0;
+    generatedContent.approvedContractValue = amount;
+    generatedContent.contractorName = contractorName;
+    generatedContent.contractorId = contractorId;
+    generatedContent.sanctionRef = extra.sanctionRef || project.sanctionNumber || 'SANCTION-REF-PWD';
+    generatedContent.fundingAuthRef = extra.fundingAuthRef || 'AUTH-REF-TREASURY';
+    generatedContent.expectedStartDate = extra.startDate || new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0];
+    generatedContent.completionDate = project.targetCompletionDate;
+    generatedContent.milestonesSummary = (project.milestones || []).map(m => `${m.title} (${m.targetDate})`).join('; ');
+    generatedContent.executionConditions = extra.notes || 'Contractor authorized to mobilize heavy machinery, initiate site sub-base preparation, and submit milestone evidence according to PWD specifications.';
   }
 
   return {
@@ -469,7 +523,7 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
 
 // Admin Preview - Start Preview Session
 apiRouter.post('/auth/admin-preview/start', (req: Request, res: Response) => {
-  const adminActor = requireAdmin(req, res);
+  const adminActor = getAdminActorForPreview(req, res);
   if (!adminActor) return;
 
   const { targetUserId } = req.body;
@@ -494,6 +548,16 @@ apiRouter.post('/auth/admin-preview/start', (req: Request, res: Response) => {
       success: false,
       error: { code: 'USER_INACTIVE', message: 'Cannot preview a deactivated user account.' },
     });
+  }
+
+  // Clean up previous preview session if switching from an active preview session
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : (req.headers['x-session-token'] as string);
+  const currentSession = token ? dbStore.getSession(token) : null;
+  if (currentSession && currentSession.isPreview) {
+    dbStore.deleteSession(token);
   }
 
   // Audit log: ADMIN_PERSONA_PREVIEW_STARTED
@@ -1922,6 +1986,10 @@ apiRouter.post('/projects/:id/documents/generate', (req: Request, res: Response)
   } else if (docType === 'FUNDING_AUTHORIZATION_ORDER') {
     if (actor.role !== 'POLICYMAKER') {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Policymakers can generate funding authorization orders.' } });
+    }
+  } else if (docType === 'WORK_ORDER') {
+    if (actor.role !== 'OFFICIAL') {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Government Officials can generate Work Orders.' } });
     }
   } else {
     return res.status(400).json({ success: false, error: { code: 'INVALID_DOC_TYPE', message: 'Invalid document type.' } });

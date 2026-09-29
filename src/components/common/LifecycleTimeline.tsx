@@ -4,124 +4,49 @@ import {
   Sparkles,
   ShieldCheck,
   KeyRound,
+  Layers,
+  IndianRupee,
+  Landmark,
+  FileSignature,
   Hammer,
   HardHat,
   Eye,
   CheckCircle2,
-  AlertTriangle,
   RotateCcw,
 } from 'lucide-react';
 import { ProjectStatus, RequestStatus } from '../../types/domain';
+import {
+  CANONICAL_LIFECYCLE_STEPS,
+  resolveProjectLifecycleStepIndex,
+} from '../../utils/lifecycleGovernance';
 
 interface LifecycleTimelineProps {
-  currentStage: ProjectStatus | RequestStatus | 'AI_UNDERSTANDING' | 'TRIAGE';
+  currentStage?: ProjectStatus | RequestStatus | 'AI_UNDERSTANDING' | 'TRIAGE' | string;
   isReworkActive?: boolean;
   className?: string;
 }
 
-interface TimelineStep {
-  key: string;
-  label: string;
-  sublabel: string;
-  icon: React.ComponentType<{ className?: string }>;
-  role: 'Citizen' | 'AI' | 'Official' | 'Contractor' | 'Public';
-}
-
-const STEPS: TimelineStep[] = [
-  {
-    key: 'REPORT',
-    label: 'Citizen Report',
-    sublabel: 'Multilingual intake',
-    icon: FileText,
-    role: 'Citizen',
-  },
-  {
-    key: 'AI_INTEL',
-    label: 'AI Understanding',
-    sublabel: 'Extraction & classification',
-    icon: Sparkles,
-    role: 'AI',
-  },
-  {
-    key: 'OFFICIAL_TRIAGE',
-    label: 'Official Triage',
-    sublabel: 'Human authority check',
-    icon: ShieldCheck,
-    role: 'Official',
-  },
-  {
-    key: 'WORK_TOKEN',
-    label: 'Work Token',
-    sublabel: 'Digital thread anchor',
-    icon: KeyRound,
-    role: 'Official',
-  },
-  {
-    key: 'SANCTION_ASSIGN',
-    label: 'Project Sanction',
-    sublabel: 'Contractor assigned',
-    icon: Hammer,
-    role: 'Official',
-  },
-  {
-    key: 'EXECUTION',
-    label: 'Site Execution',
-    sublabel: 'Milestones & progress',
-    icon: HardHat,
-    role: 'Contractor',
-  },
-  {
-    key: 'VERIFICATION',
-    label: 'Evidence & AI Check',
-    sublabel: 'AI compares, Official inspects',
-    icon: Eye,
-    role: 'Official',
-  },
-  {
-    key: 'COMPLETION',
-    label: 'Completion & Audit',
-    sublabel: 'Public transparency',
-    icon: CheckCircle2,
-    role: 'Public',
-  },
-];
+const STEP_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  REPORT: FileText,
+  AI_INTEL: Sparkles,
+  OFFICIAL_TRIAGE: ShieldCheck,
+  WORK_TOKEN: KeyRound,
+  PROJECT_CREATION: Layers,
+  FINANCIAL_SANCTION: IndianRupee,
+  FUNDING_AUTH: Landmark,
+  WORK_ORDER: FileSignature,
+  CONTRACTOR_ASSIGN: Hammer,
+  EXECUTION: HardHat,
+  VERIFICATION: Eye,
+  COMPLETION: CheckCircle2,
+};
 
 export const LifecycleTimeline: React.FC<LifecycleTimelineProps> = ({
   currentStage,
   isReworkActive = false,
   className = '',
 }) => {
-  // Determine active step index
-  const getStepIndex = (): number => {
-    switch (currentStage) {
-      case 'SUBMITTED':
-        return 0;
-      case 'AI_UNDERSTANDING':
-        return 1;
-      case 'TRIAGED':
-      case 'TRIAGE':
-        return 2;
-      case 'TOKEN_ISSUED':
-        return 3;
-      case 'PROJECT_CREATED':
-      case 'PROPOSED':
-      case 'SANCTIONED':
-      case 'TENDERED':
-      case 'CONTRACTOR_ASSIGNED':
-        return 4;
-      case 'IN_PROGRESS':
-        return 5;
-      case 'VERIFICATION_REQUIRED':
-      case 'DELAYED':
-        return 6;
-      case 'COMPLETED':
-        return 7;
-      default:
-        return 0;
-    }
-  };
-
-  const activeIndex = getStepIndex();
+  const activeIndex = resolveProjectLifecycleStepIndex(currentStage);
 
   return (
     <div className={`bg-white border border-slate-200 rounded-xl p-4 shadow-xs ${className}`}>
@@ -140,9 +65,9 @@ export const LifecycleTimeline: React.FC<LifecycleTimelineProps> = ({
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 relative">
-        {STEPS.map((step, idx) => {
-          const Icon = step.icon;
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-11 gap-1.5 relative">
+        {CANONICAL_LIFECYCLE_STEPS.map((step, idx) => {
+          const Icon = STEP_ICONS[step.key] || FileText;
           const isDone = idx < activeIndex;
           const isCurrent = idx === activeIndex;
           const isPending = idx > activeIndex;
@@ -150,18 +75,18 @@ export const LifecycleTimeline: React.FC<LifecycleTimelineProps> = ({
           return (
             <div
               key={step.key}
-              className={`flex flex-col items-center text-center p-2 rounded-lg border transition-all ${
+              className={`flex flex-col items-center text-center p-1.5 rounded-lg border transition-all ${
                 isCurrent
                   ? isReworkActive
-                    ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-200'
-                    : 'bg-emerald-50 border-emerald-400 ring-2 ring-emerald-200'
+                    ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-200 shadow-xs'
+                    : 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200 shadow-xs'
                   : isDone
-                  ? 'bg-slate-50 border-slate-200 opacity-90'
+                  ? 'bg-slate-50 border-slate-200 opacity-95'
                   : 'bg-white border-slate-100 opacity-60'
               }`}
             >
               <div
-                className={`w-7 h-7 rounded-full flex items-center justify-center mb-1.5 ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center mb-1 ${
                   isCurrent
                     ? isReworkActive
                       ? 'bg-amber-600 text-white'
@@ -171,14 +96,14 @@ export const LifecycleTimeline: React.FC<LifecycleTimelineProps> = ({
                     : 'bg-slate-100 text-slate-400'
                 }`}
               >
-                {isDone ? <CheckCircle2 className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+                {isDone ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Icon className="w-3.5 h-3.5" />}
               </div>
 
-              <span className="text-[10px] font-semibold tracking-wide text-slate-500 mb-0.5">
+              <span className="text-[9px] font-bold tracking-tight text-slate-500 mb-0.5 uppercase">
                 {step.role}
               </span>
-              <p className="text-xs font-bold text-slate-800 leading-tight">{step.label}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{step.sublabel}</p>
+              <p className="text-[11px] font-bold text-slate-800 leading-tight line-clamp-2">{step.label}</p>
+              <p className="text-[9px] text-slate-500 mt-0.5 leading-tight line-clamp-1">{step.sublabel}</p>
             </div>
           );
         })}
