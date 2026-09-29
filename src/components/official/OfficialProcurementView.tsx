@@ -48,7 +48,8 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
       {/* Tender Allocation Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects.map((p) => {
-          const isAssigned = !!p.contractorId;
+          const isAssigned = !!p.contractorId || p.status === 'CONTRACTOR_ASSIGNED';
+          const isPendingSanction = p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'CONTRACTOR_RECOMMENDED' || p.status === 'PENDING_FINANCIAL_SANCTION';
           const isTendered = p.status === 'TENDERED';
 
           return (
@@ -63,12 +64,20 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
                     className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                       isAssigned
                         ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : isPendingSanction
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
                         : isTendered
                         ? 'bg-purple-100 text-purple-800 border-purple-300 animate-pulse'
-                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                        : 'bg-slate-100 text-slate-800 border-slate-300'
                     }`}
                   >
-                    {isAssigned ? 'TENDER AWARDED' : isTendered ? 'BIDDING ACTIVE (AI ACTIVE)' : 'AWAITING TENDER'}
+                    {isAssigned
+                      ? 'TENDER AWARDED'
+                      : isPendingSanction
+                      ? 'WAITING FOR FINANCIAL SANCTION'
+                      : isTendered
+                      ? 'BIDDING ACTIVE (AI ACTIVE)'
+                      : 'AWAITING TENDER'}
                   </span>
                 </div>
 
@@ -111,7 +120,11 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
                 </button>
 
                 {!isAssigned ? (
-                  isTendered ? (
+                  isPendingSanction ? (
+                    <span className="text-[11px] text-amber-800 font-bold bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-300 flex items-center gap-1">
+                      <span>Recommendation Submitted • Awaiting Sanction</span>
+                    </span>
+                  ) : isTendered ? (
                     <button
                       type="button"
                       onClick={() => onOpenAssignContractor(p)}

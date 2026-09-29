@@ -58,6 +58,7 @@ import {
   Award,
   ChevronDown,
   AlertCircle,
+  Landmark,
 } from 'lucide-react';
 
 interface PolicymakerWorkspaceProps {
@@ -65,7 +66,7 @@ interface PolicymakerWorkspaceProps {
   onOpenToken: (tokenId: string) => void;
 }
 
-type MainTabType = 'decision_inbox' | 'intelligence' | 'funding' | 'portfolio' | 'history';
+type MainTabType = 'decision_inbox' | 'authorization' | 'intelligence' | 'funding' | 'portfolio' | 'history';
 type IntelligenceSubTabType = 'regional' | 'constituency' | 'service_gaps' | 'lifecycle' | 'ai_insights';
 type PortfolioSubTabType = 'all_projects' | 'delayed' | 'divergence';
 
@@ -93,6 +94,48 @@ export const PolicymakerWorkspace: React.FC<PolicymakerWorkspaceProps> = ({
   const [proposalReason, setProposedReason] = useState('');
   const [sanctionStatusMessage, setSanctionStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isSubmittingSanction, setIsSubmittingSanction] = useState(false);
+
+  // Funding Authorization states
+  const [selectedAuthId, setSelectedAuthId] = useState<string | null>(null);
+  const [authProjectDetail, setAuthProjectDetail] = useState<(Project & { citizenRequest?: CitizenRequest; workToken?: WorkToken }) | null>(null);
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const [authReason, setAuthReason] = useState('');
+  const [authStatusMessage, setAuthStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchAuthDetail = async (id: string) => {
+    try {
+      const detail: any = await apiClient.getProjectById(id);
+      setAuthProjectDetail(detail);
+      setAuthReason('');
+      setAuthStatusMessage(null);
+    } catch (err: any) {
+      console.error('Failed to load project for authorization:', err);
+    }
+  };
+
+  const handleAuthorizeFunding = async (decision: 'AUTHORIZE' | 'RETURN' | 'REJECT') => {
+    if (!authProjectDetail) return;
+    setIsSubmittingAuth(true);
+    setAuthStatusMessage(null);
+    try {
+      const updated = await apiClient.authorizeFunding(authProjectDetail.id, {
+        decision,
+        reason: authReason.trim() || undefined,
+        sanctionedAmount: authProjectDetail.funding.sanctioned,
+      });
+      setAuthStatusMessage({
+        type: 'success',
+        text: decision === 'AUTHORIZE' ? `Funding successfully authorized for Project ${updated.id}. Execution enabled.` : `Funding authorization decision (${decision}) processed successfully.`,
+      });
+      await fetchIntelligence();
+      setSelectedAuthId(null);
+      setAuthProjectDetail(null);
+    } catch (err: any) {
+      setAuthStatusMessage({ type: 'error', text: err.message || 'Failed to process funding authorization.' });
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
 
   // Selected project from general portfolio to open the generic details modal
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);

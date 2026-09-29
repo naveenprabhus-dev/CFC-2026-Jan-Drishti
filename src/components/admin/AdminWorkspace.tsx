@@ -24,6 +24,7 @@ import {
   Search,
   Shield,
   TrendingUp,
+  Landmark,
 } from 'lucide-react';
 
 export const AdminWorkspace: React.FC = () => {
@@ -32,19 +33,22 @@ export const AdminWorkspace: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'users' | 'provision_account' | 'persona_switcher'>('users');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Form State for Government Official / Policymaker Provisioning ONLY
+  // Form State for Government Official / Sanctioning Authority / Policymaker Provisioning
   const [customId, setCustomId] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'OFFICIAL' | 'POLICYMAKER'>('OFFICIAL');
+  const [role, setRole] = useState<'OFFICIAL' | 'POLICYMAKER' | 'SANCTIONING_AUTHORITY'>('OFFICIAL');
   const [department, setDepartment] = useState('');
   const [jurisdiction, setJurisdiction] = useState('');
+  const [homeState, setHomeState] = useState('');
+  const [homeDistrict, setHomeDistrict] = useState('');
+  const [homeULB, setHomeULB] = useState('');
   const [designation, setDesignation] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [primaryLanguage, setPrimaryLanguage] = useState<string>('en');
   const [authorityScope, setAuthorityScope] = useState('');
-  const [financialThreshold, setFinancialThreshold] = useState('5000000');
+  const [financialThreshold, setFinancialThreshold] = useState('10000000');
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,12 +56,13 @@ export const AdminWorkspace: React.FC = () => {
 
   // Auto-suggest unified ID when role changes
   useEffect(() => {
-    if (!customId || customId.startsWith('gov-') || customId.startsWith('pm-')) {
-      const prefix = role === 'OFFICIAL' ? 'gov' : 'pm';
+    if (!customId || customId.startsWith('gov-') || customId.startsWith('sanc-') || customId.startsWith('pm-')) {
+      const prefix = role === 'OFFICIAL' ? 'gov' : role === 'SANCTIONING_AUTHORITY' ? 'sanc' : 'pm';
+      const geoTag = homeState.trim() ? homeState.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : (homeDistrict.trim() ? homeDistrict.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : 'circle');
       const count = allUsers.filter((u) => u.role === role).length + 1;
-      setCustomId(`${prefix}-tamilnadu-${String(count).padStart(3, '0')}`);
+      setCustomId(`${prefix}-${geoTag}-${String(count).padStart(3, '0')}`);
     }
-  }, [role, allUsers]);
+  }, [role, homeState, homeDistrict, allUsers]);
 
   const handleProvisionAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,25 +74,30 @@ export const AdminWorkspace: React.FC = () => {
     }
 
     try {
+      const combinedJurisdiction = jurisdiction.trim() || [homeDistrict.trim(), homeState.trim()].filter(Boolean).join(', ') || 'Authorized Infrastructure Circle';
+
       const payload = {
         id: customId.trim() || undefined,
         name: name.trim(),
         email: email.trim(),
         role,
-        department: department.trim() || (role === 'OFFICIAL' ? 'Public Works Department (PWD)' : 'State Infrastructure Planning Commission'),
-        jurisdiction: jurisdiction.trim() || 'Regional Jurisdiction Circle',
-        designation: designation.trim() || (role === 'OFFICIAL' ? 'Executive Engineer & Triage Officer' : 'Principal Infrastructure Advisor'),
+        department: department.trim() || (role === 'OFFICIAL' ? 'Public Works Department (PWD)' : role === 'SANCTIONING_AUTHORITY' ? 'Finance & Treasury Sanctioning Department' : 'State Infrastructure Planning Commission'),
+        jurisdiction: combinedJurisdiction,
+        homeState: homeState.trim() || undefined,
+        homeDistrict: homeDistrict.trim() || undefined,
+        homeULB: homeULB.trim() || undefined,
+        designation: designation.trim() || (role === 'OFFICIAL' ? 'Executive Engineer & Triage Officer' : role === 'SANCTIONING_AUTHORITY' ? 'Principal Sanctioning Officer & Financial Commissioner' : 'Principal Infrastructure Advisor'),
         phone: phone.trim() || undefined,
         password: password.trim() || undefined,
         primaryLanguage,
         authorityScope: authorityScope.trim() || undefined,
-        financialThreshold: role === 'POLICYMAKER' ? Number(financialThreshold) || 5000000 : undefined,
+        financialThreshold: (role === 'SANCTIONING_AUTHORITY' || role === 'POLICYMAKER') ? Number(financialThreshold) || 10000000 : undefined,
       };
 
       const newOfficial = await apiClient.provisionOfficialAccount(payload);
       setMessage({
         type: 'success',
-        text: `Successfully provisioned ${role === 'OFFICIAL' ? 'Government Official' : 'Policymaker'} account: ${newOfficial.name} (${newOfficial.id})`,
+        text: `Successfully provisioned ${role === 'OFFICIAL' ? 'Government Official' : role === 'SANCTIONING_AUTHORITY' ? 'Sanctioning Authority' : 'Policymaker'} account: ${newOfficial.name} (${newOfficial.id})`,
       });
 
       // Reset form
@@ -95,12 +105,15 @@ export const AdminWorkspace: React.FC = () => {
       setEmail('');
       setDepartment('');
       setJurisdiction('');
+      setHomeState('');
+      setHomeDistrict('');
+      setHomeULB('');
       setDesignation('');
       setPhone('');
       setPassword('');
       setAuthorityScope('');
       setPrimaryLanguage('en');
-      setFinancialThreshold('5000000');
+      setFinancialThreshold('10000000');
 
       await refreshUsers();
     } catch (err: any) {
@@ -435,36 +448,49 @@ export const AdminWorkspace: React.FC = () => {
           </div>
 
           <form onSubmit={handleProvisionAccount} className="space-y-5">
-            {/* Role selection tabs - OFFICIAL or POLICYMAKER ONLY */}
+            {/* Role selection tabs - OFFICIAL, SANCTIONING_AUTHORITY, or POLICYMAKER */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 Select Institutional Account Type *
               </label>
-              <div className="grid grid-cols-2 gap-3 p-1 bg-slate-100 rounded-2xl border border-slate-200">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-1 bg-slate-100 rounded-2xl border border-slate-200">
                 <button
                   type="button"
                   onClick={() => setRole('OFFICIAL')}
-                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-black transition cursor-pointer ${
                     role === 'OFFICIAL'
                       ? 'bg-white text-emerald-900 shadow-xs border border-emerald-300 ring-2 ring-emerald-400/20'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <Shield className="w-4 h-4 text-emerald-600" />
-                  <span>Government Official (PWD / Municipal Engineer)</span>
+                  <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Government Official</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRole('SANCTIONING_AUTHORITY')}
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-black transition cursor-pointer ${
+                    role === 'SANCTIONING_AUTHORITY'
+                      ? 'bg-white text-amber-950 shadow-xs border border-amber-400 ring-2 ring-amber-400/30'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Landmark className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Sanctioning Authority</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setRole('POLICYMAKER')}
-                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition cursor-pointer ${
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-black transition cursor-pointer ${
                     role === 'POLICYMAKER'
                       ? 'bg-white text-indigo-900 shadow-xs border border-indigo-300 ring-2 ring-indigo-400/20'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <TrendingUp className="w-4 h-4 text-indigo-600" />
-                  <span>Policymaker (Planning & Sanctions Commission)</span>
+                  <TrendingUp className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>Policymaker</span>
                 </button>
               </div>
             </div>
@@ -478,7 +504,7 @@ export const AdminWorkspace: React.FC = () => {
                   type="text"
                   value={customId}
                   onChange={(e) => setCustomId(e.target.value)}
-                  placeholder={role === 'OFFICIAL' ? 'e.g. gov-tamilnadu-001' : 'e.g. pm-tamilnadu-001'}
+                  placeholder={role === 'OFFICIAL' ? 'e.g. gov-tn-001' : role === 'SANCTIONING_AUTHORITY' ? 'e.g. sanction-tn-001' : 'e.g. pm-tn-001'}
                   required
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition font-mono font-bold"
                 />
@@ -492,7 +518,7 @@ export const AdminWorkspace: React.FC = () => {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Rajesh Kumar"
+                  placeholder="e.g. Shri K. R. Ramanathan, IAS"
                   required
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition"
                 />
@@ -508,7 +534,7 @@ export const AdminWorkspace: React.FC = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder={role === 'OFFICIAL' ? 'officer@pwd.gov.in' : 'advisor@planning.gov.in'}
+                  placeholder={role === 'OFFICIAL' ? 'officer@pwd.gov.in' : role === 'SANCTIONING_AUTHORITY' ? 'sanctioner@gov.in' : 'advisor@planning.gov.in'}
                   required
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition"
                 />
@@ -528,16 +554,58 @@ export const AdminWorkspace: React.FC = () => {
               </div>
             </div>
 
+            {/* Geography & Jurisdiction inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  State / Territory
+                </label>
+                <input
+                  type="text"
+                  value={homeState}
+                  onChange={(e) => setHomeState(e.target.value)}
+                  placeholder="e.g. Tamil Nadu / Maharashtra"
+                  className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  District / Circle
+                </label>
+                <input
+                  type="text"
+                  value={homeDistrict}
+                  onChange={(e) => setHomeDistrict(e.target.value)}
+                  placeholder="e.g. Coimbatore / Pune"
+                  className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  ULB / Ward (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={homeULB}
+                  onChange={(e) => setHomeULB(e.target.value)}
+                  placeholder="e.g. Municipal Corporation"
+                  className="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white focus:outline-none"
+                />
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Department / Commission
+                  Department / Sanctioning Body
                 </label>
                 <input
                   type="text"
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
-                  placeholder={role === 'OFFICIAL' ? 'Public Works Department (PWD - Highways)' : 'State Infrastructure Planning Commission'}
+                  placeholder={role === 'OFFICIAL' ? 'Public Works Department (PWD)' : role === 'SANCTIONING_AUTHORITY' ? 'Finance & Treasury Sanctioning Department' : 'State Infrastructure Planning Commission'}
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition"
                 />
               </div>
@@ -550,7 +618,7 @@ export const AdminWorkspace: React.FC = () => {
                   type="text"
                   value={designation}
                   onChange={(e) => setDesignation(e.target.value)}
-                  placeholder={role === 'OFFICIAL' ? 'Chief Engineer & Triage Officer' : 'Principal Infrastructure Advisor'}
+                  placeholder={role === 'OFFICIAL' ? 'Chief Engineer & Triage Officer' : role === 'SANCTIONING_AUTHORITY' ? 'Principal Sanctioning Officer & Financial Commissioner' : 'Principal Infrastructure Advisor'}
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition"
                 />
               </div>
@@ -559,13 +627,13 @@ export const AdminWorkspace: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Authorized Jurisdiction / Region
+                  Authorized Jurisdiction Circle
                 </label>
                 <input
                   type="text"
                   value={jurisdiction}
                   onChange={(e) => setJurisdiction(e.target.value)}
-                  placeholder="e.g. State Infrastructure Circle / Administrative District"
+                  placeholder="e.g. Coimbatore & Western Circle"
                   className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition"
                 />
               </div>
@@ -588,22 +656,22 @@ export const AdminWorkspace: React.FC = () => {
               </div>
             </div>
 
-            {role === 'POLICYMAKER' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+            {(role === 'SANCTIONING_AUTHORITY' || role === 'POLICYMAKER') && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-amber-50/50 p-4 rounded-2xl border border-amber-200">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-amber-950 mb-1">
                     Delegated Financial Sanction Threshold (INR) *
                   </label>
                   <input
                     type="number"
                     value={financialThreshold}
                     onChange={(e) => setFinancialThreshold(e.target.value)}
-                    placeholder="e.g. 5000000 for ₹50.0 Lakhs"
+                    placeholder="e.g. 10000000 for ₹1.00 Crore limit"
                     required
-                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition font-mono font-bold"
+                    className="w-full text-xs p-2.5 rounded-xl border border-amber-300 bg-white focus:outline-none transition font-mono font-extrabold text-slate-900"
                   />
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    Limit of financial sanction authority. Recommended: ₹50.0 Lakhs (5,000,000) or ₹1.0 Crore (10,000,000).
+                  <p className="text-[11px] text-amber-900 mt-1 font-medium">
+                    Maximum financial outlay the officer is legally authorized to approve in a single sanction decision. (e.g., 10000000 = ₹1.00 Crore limit).
                   </p>
                 </div>
               </div>
@@ -617,7 +685,7 @@ export const AdminWorkspace: React.FC = () => {
                 value={authorityScope}
                 onChange={(e) => setAuthorityScope(e.target.value)}
                 rows={2}
-                placeholder={role === 'OFFICIAL' ? 'Triage incoming reports, issue cryptographic Work Tokens, sanction public tenders, approve milestone inspections.' : 'Macro regional monitoring, delay radar oversight, funding absorption optimization.'}
+                placeholder={role === 'OFFICIAL' ? 'Triage incoming reports, issue Work Tokens, recommend contractors, conduct field inspections.' : role === 'SANCTIONING_AUTHORITY' ? 'Final authority for financial sanction, treasury release authorization, and contractor award confirmation up to configured ceiling.' : 'Macro regional monitoring, delay radar oversight, funding absorption optimization.'}
                 className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none transition"
               />
             </div>
@@ -626,8 +694,8 @@ export const AdminWorkspace: React.FC = () => {
               type="submit"
               className="w-full py-3.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-md transition transform active:scale-98 cursor-pointer flex items-center justify-center gap-2"
             >
-              <UserCheck className="w-4 h-4" />
-              <span>Provision {role === 'OFFICIAL' ? 'Official' : 'Policymaker'} Account</span>
+              <UserCheck className="w-4 h-4 text-emerald-400" />
+              <span>Provision {role === 'OFFICIAL' ? 'Official' : role === 'SANCTIONING_AUTHORITY' ? 'Sanctioning Authority' : 'Policymaker'} Account</span>
             </button>
           </form>
         </div>

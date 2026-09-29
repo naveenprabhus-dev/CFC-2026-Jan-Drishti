@@ -91,7 +91,7 @@ export const DEFAULT_SANCTIONER: UserSession = {
 
 export function createCleanDatabase(): DatabaseSchema {
   return {
-    users: [{ ...DEFAULT_ADMIN }, { ...DEFAULT_SANCTIONER }],
+    users: [{ ...DEFAULT_ADMIN }],
     requests: [],
     workTokens: [],
     projects: [],
@@ -151,12 +151,9 @@ class DatabaseStore {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.users)) {
-          // Ensure default admin and sanctioner exist
+          // Ensure default admin exists
           if (!parsed.users.some((u: UserSession) => u.role === 'ADMIN' || u.id === 'admin-001')) {
             parsed.users.unshift({ ...DEFAULT_ADMIN });
-          }
-          if (!parsed.users.some((u: UserSession) => u.role === 'SANCTIONING_AUTHORITY' || u.id === 'sanctioner-01')) {
-            parsed.users.push({ ...DEFAULT_SANCTIONER });
           }
           if (!Array.isArray(parsed.requests)) parsed.requests = [];
           if (!Array.isArray(parsed.workTokens)) parsed.workTokens = [];

@@ -28,6 +28,9 @@ import {
   ApiResponse,
   UserSession,
   UserRole,
+  GovernanceDocument,
+  GovernanceDocType,
+  GovernanceDocStatus,
 } from '../../src/types/domain';
 
 export const apiRouter = Router();
@@ -115,6 +118,73 @@ function filterByJurisdiction(items: any[], actor: UserSession, locationField: '
 
     return false;
   });
+}
+
+function generateGovernanceDocument(project: Project, docType: GovernanceDocType, actor: UserSession, extra: any = {}): GovernanceDocument {
+  const docId = `DOC-${docType}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const refPrefix = docType === 'CONTRACTOR_RECOMMENDATION' ? 'REC' : docType === 'FINANCIAL_SANCTION_ORDER' ? 'SAN' : 'AUTH';
+  const refNumber = `REF-${refPrefix}-${(project.state || 'IN').toUpperCase()}-${project.id}-${Date.now().toString().slice(-4)}`;
+  
+  let title = '';
+  let amount = 0;
+  let contractorId = project.contractorId || project.recommendedContractorId;
+  let contractorName = project.contractorName || project.recommendedContractorName;
+  
+  const generatedContent: any = {
+    projectName: project.name,
+    projectId: project.id,
+    workTokenId: project.workTokenId,
+    requestId: project.requestId,
+    department: project.department,
+    district: project.district,
+    state: project.state,
+    scopeOfWork: project.scopeOfWork,
+    authorityName: actor.name,
+    authorityDesignation: actor.designation || actor.role,
+    date: new Date().toISOString(),
+  };
+
+  if (docType === 'CONTRACTOR_RECOMMENDATION') {
+    title = 'CONTRACTOR RECOMMENDATION & PROCUREMENT REPORT';
+    amount = project.recommendedAmount || extra.approvedAmount || 0;
+    generatedContent.recommendedContractorId = contractorId;
+    generatedContent.recommendedContractorName = contractorName;
+    generatedContent.justification = extra.reason || project.recommendationReason || 'Recommended based on procurement bidding and AI analysis.';
+  } else if (docType === 'FINANCIAL_SANCTION_ORDER') {
+    title = 'FINANCIAL SANCTION ORDER';
+    amount = extra.approvedAmount || project.funding.sanctioned || project.recommendedAmount || 0;
+    generatedContent.sanctionedAmount = amount;
+    generatedContent.contractorName = contractorName;
+    generatedContent.budgetHead = project.funding.budgetHead || 'Capital Outlay on Urban Infrastructure Development';
+    generatedContent.findings = extra.reason || project.officialReviewNotes || 'Verified situation, Technical plans and Competitive bidding details are in order.';
+  } else {
+    title = 'FUNDING / TREASURY AUTHORIZATION ORDER';
+    amount = project.funding.sanctioned || 0;
+    generatedContent.authorizedAmount = amount;
+    generatedContent.contractorName = contractorName;
+    generatedContent.sanctionRef = extra.sanctionRef || 'REF-SAN-ACTIVE';
+    generatedContent.conditions = extra.reason || 'Funding release authorized for execution phase; compliance reports mandatory at each milestone.';
+  }
+
+  return {
+    id: docId,
+    projectId: project.id,
+    workTokenId: project.workTokenId,
+    requestId: project.requestId,
+    docType,
+    title,
+    refNumber,
+    version: 1,
+    status: 'GENERATED',
+    createdBy: actor.name,
+    createdByRole: actor.role,
+    createdAt: new Date().toISOString(),
+    generatedContent,
+    amount,
+    contractorId,
+    contractorName,
+    notes: extra.notes || '',
+  };
 }
 
 function initializeProjectTender(project: Project): ProjectTender {
@@ -582,6 +652,9 @@ apiRouter.post('/admin/provision', (req: Request, res: Response) => {
     primaryLanguage,
     authorityScope: customAuthorityScope,
     financialThreshold,
+    homeState,
+    homeDistrict,
+    homeULB,
   } = req.body;
 
   if (!name || !email || !role) {
@@ -667,6 +740,9 @@ apiRouter.post('/admin/provision', (req: Request, res: Response) => {
     permissions,
     phone: phone ? phone.trim() : undefined,
     primaryLanguage: primaryLanguage || 'en',
+    homeState: homeState ? homeState.trim() : undefined,
+    homeDistrict: homeDistrict ? homeDistrict.trim() : undefined,
+    homeULB: homeULB ? homeULB.trim() : undefined,
     financialThreshold: financialThreshold ? Number(financialThreshold) : (role === 'SANCTIONING_AUTHORITY' ? 10000000 : undefined),
     avatar: role === 'OFFICIAL'
       ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
@@ -686,7 +762,9 @@ apiRouter.post('/admin/provision', (req: Request, res: Response) => {
     entityType: 'USER',
     entityId: assignedId,
     newState: 'ACTIVE',
+    amount: newOfficial.financialThreshold,
     reason: `Administrator ${actor.name} provisioned ${role} account: ${name} (${assignedId})`,
+    details: `Admin provisioned ${role} (${assignedId}) for ${name}. Department: ${newOfficial.department}, Jurisdiction: ${newOfficial.jurisdiction}, Financial Limit: INR ${newOfficial.financialThreshold ? (newOfficial.financialThreshold / 100000).toFixed(2) + ' Lakhs' : 'N/A'}.`,
     correlationId: assignedId,
   });
 
@@ -1352,57 +1430,301 @@ apiRouter.post('/projects/:id/sanction', (req: Request, res: Response) => {
   }
   
   // 5. Update project status and decision
-  let updatedStatus: any = 'FINANCIAL_SANCTIONED';
-  let actionName = 'FINANCIAL_SANCTION_APPROVED';
-  let logDetails = '';
-  
   const hasRecommendedContractor = Boolean(project.recommendedContractorId);
   const effectiveContractorId = project.recommendedContractorId;
   const effectiveContractorName = project.recommendedContractorName;
 
   if (decision === 'APPROVE') {
-    updatedStatus = hasRecommendedContractor ? 'EXECUTION_ENABLED' : 'FINANCIAL_SANCTIONED';
-    actionName = 'FINANCIAL_SANCTION_APPROVED';
-    logDetails = `Sanctioning Officer approved financial sanction for ₹${(projectCost/100000).toFixed(1)} Lakhs.${hasRecommendedContractor ? ` Contractor ${effectiveContractorName} assignment is now effective.` : ''}`;
+    const updatedFunding = {
+      ...project.funding,
+      sanctioned: projectCost,
+      remaining: projectCost - (project.funding.expenditure || 0),
+    };
+
+    // Temporarily apply to project for document generation context
+    project.funding = updatedFunding;
+
+    const doc = generateGovernanceDocument(project, 'FINANCIAL_SANCTION_ORDER', actor, { approvedAmount: projectCost, reason });
+    const docs = project.governanceDocuments || [];
+    
+    // Suppress/supersede previous financial sanction orders
+    docs.forEach(d => {
+      if (d.docType === 'FINANCIAL_SANCTION_ORDER' && d.status !== 'VERIFIED') {
+        d.status = 'VERIFIED';
+      }
+    });
+    docs.push(doc);
+
+    const updatePayload: any = {
+      status: 'FINANCIAL_SANCTIONED',
+      sanctionedAt: new Date().toISOString(),
+      officialReviewNotes: reason || project.officialReviewNotes,
+      funding: updatedFunding,
+      governanceDocuments: docs,
+    };
+
+    const updatedProject = dbStore.updateProject(projectId, updatePayload);
+
+    // 1. Audit Event: FINANCIAL_SANCTION_APPROVED
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'FINANCIAL_SANCTION_APPROVED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: project.status,
+      newState: 'FINANCIAL_SANCTIONED',
+      decision: 'APPROVE',
+      amount: projectCost,
+      reason: reason || 'Financial sanction approved by Sanctioning Authority.',
+      details: `Sanctioning Authority ${actor.name} approved financial sanction of INR ${projectCost} (₹${(projectCost/100000).toFixed(1)} Lakhs). System generated Financial Sanction Order ${doc.refNumber}.`,
+      correlationId: projectId,
+    });
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'FINANCIAL_SANCTION_ORDER_GENERATED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'FINANCIAL_SANCTIONED',
+      newState: 'FINANCIAL_SANCTIONED',
+      amount: projectCost,
+      decision: 'GENERATED',
+      reason: 'System generated Financial Sanction Order',
+      details: `Financial Sanction Order ${doc.refNumber} generated. Awaiting signature and upload to submit for Policymaker Funding Authorization.`,
+      correlationId: projectId,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'SANCTIONING_AUTHORITY',
+      targetUserId: actor.id,
+      title: `Sanction Order Generated: ${project.name}`,
+      message: `Financial Sanction Order ${doc.refNumber} generated. Please download, sign, and upload to progress project to Funding Authorization.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+
+    return res.json({
+      success: true,
+      data: updatedProject,
+    });
+  } else if (decision === 'RETURN') {
+    const updatedProject = dbStore.updateProject(projectId, {
+      status: 'RETURNED',
+      officialReviewNotes: reason || 'Returned by Sanctioning Authority for revision.',
+    });
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'FINANCIAL_SANCTION_RETURNED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: project.status,
+      newState: 'RETURNED',
+      decision: 'RETURN',
+      amount: projectCost,
+      reason: reason || 'Proposal returned for revision by Sanctioning Authority.',
+      details: `Sanctioning Authority ${actor.name} returned project proposal ${projectId} for revision. Reason: ${reason}`,
+      correlationId: projectId,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'OFFICIAL',
+      targetUserId: '',
+      title: `Sanction Returned for Revision: ${project.name}`,
+      message: `Proposal returned by Sanctioning Authority. Reason: ${reason}`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+
+    return res.json({
+      success: true,
+      data: updatedProject,
+    });
+  } else {
+    const updatedProject = dbStore.updateProject(projectId, {
+      status: 'FINANCIAL_SANCTION_REJECTED',
+      officialReviewNotes: reason || 'Rejected by Sanctioning Authority.',
+    });
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'FINANCIAL_SANCTION_REJECTED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: project.status,
+      newState: 'FINANCIAL_SANCTION_REJECTED',
+      decision: 'REJECT',
+      amount: projectCost,
+      reason: reason || 'Sanction rejected by Sanctioning Authority.',
+      details: `Sanctioning Authority ${actor.name} rejected financial sanction for project ${projectId}. Reason: ${reason}`,
+      correlationId: projectId,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'OFFICIAL',
+      targetUserId: '',
+      title: `Sanction Rejected: ${project.name}`,
+      message: `Financial sanction rejected by Sanctioning Authority. Reason: ${reason}`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+
+    return res.json({
+      success: true,
+      data: updatedProject,
+    });
+  }
+});
+
+// Policymaker Funding Authorization endpoint
+apiRouter.post('/projects/:id/authorize-funding', (req: Request, res: Response) => {
+  const actor = getActorSession(req);
+  const projectId = req.params.id;
+  const { decision, reason, sanctionedAmount } = req.body; // 'AUTHORIZE' | 'RETURN' | 'REJECT'
+
+  const project = dbStore.getProjectById(projectId);
+  if (!project) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found.' } });
+  }
+
+  // 1. Role validation (POLICYMAKER or ADMIN only)
+  if (actor.role !== 'POLICYMAKER' && actor.role !== 'ADMIN') {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Policymakers can authorize project funding.' } });
+  }
+
+  // 2. Jurisdiction validation
+  const pmDistrict = (actor.homeDistrict || actor.authorizedRegion || actor.jurisdiction || '').trim().toLowerCase();
+  const pmState = (actor.homeState || '').trim().toLowerCase();
+  const projDistrict = (project.district || '').trim().toLowerCase();
+  const projState = (project.state || '').trim().toLowerCase();
+
+  if (pmDistrict && !pmDistrict.includes(projDistrict) && !projDistrict.includes(pmDistrict)) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED_JURISDICTION', message: `Unauthorized: Project region (${project.district}) is outside your authorized regional jurisdiction.` }
+    });
+  }
+  if (pmState && !pmState.includes(projState) && !projState.includes(pmState)) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED_JURISDICTION', message: `Unauthorized: Project state (${project.state}) is outside your authorized state jurisdiction.` }
+    });
+  }
+
+  // 3. Protection against amount tampering
+  const canonicalSanctioned = project.funding.sanctioned || 0;
+  if (sanctionedAmount !== undefined && Number(sanctionedAmount) !== canonicalSanctioned) {
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'FUNDING_AUTHORIZATION_REJECTED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: project.status,
+      newState: 'FINANCIAL_SANCTION_REJECTED',
+      decision: 'REJECT_TAMPERING',
+      amount: Number(sanctionedAmount),
+      reason: 'Funding authorization failed: submitted amount differs from canonical sanctioned record.',
+      details: `Amount tampering detected. Submitted: INR ${sanctionedAmount}, Canonical Sanctioned: INR ${canonicalSanctioned}. Authorization rejected.`,
+      correlationId: projectId,
+    });
+    return res.status(403).json({
+      success: false,
+      error: { code: 'AMOUNT_TAMPERING_DETECTED', message: `Tampering detected: Submitted amount (INR ${sanctionedAmount}) does not match the canonical sanctioned record (INR ${canonicalSanctioned}).` }
+    });
+  }
+
+  dbStore.logAudit({
+    actor: actor.name,
+    actorRole: actor.role,
+    actorId: actor.id,
+    actorName: actor.name,
+    action: 'FUNDING_AUTHORIZATION_REQUESTED',
+    entityType: 'PROJECT',
+    entityId: projectId,
+    projectId: projectId,
+    previousState: project.status,
+    newState: project.status,
+    decision: decision,
+    amount: canonicalSanctioned,
+    reason: reason || 'Funding authorization requested by Policymaker.',
+    details: `Policymaker ${actor.name} initiated funding authorization review for project ${projectId}.`,
+    correlationId: projectId,
+  });
+
+  const hasRecommendedContractor = Boolean(project.recommendedContractorId);
+  let updatedStatus: any = 'FUNDING_AUTHORIZED';
+  let actionName = 'FUNDING_AUTHORIZED';
+
+  if (decision === 'AUTHORIZE') {
+    updatedStatus = 'FUNDING_AUTHORIZED';
+    actionName = 'FUNDING_AUTHORIZED';
   } else if (decision === 'RETURN') {
     updatedStatus = 'RETURNED';
-    actionName = 'FINANCIAL_SANCTION_RETURNED';
-    logDetails = `Sanctioning Officer returned project proposal for revision. Reason: ${reason}`;
-  } else if (decision === 'REJECT') {
-    updatedStatus = 'REJECTED';
-    actionName = 'FINANCIAL_SANCTION_REJECTED';
-    logDetails = `Sanctioning Officer rejected financial sanction. Reason: ${reason}`;
+    actionName = 'FUNDING_AUTHORIZATION_RETURNED';
+  } else {
+    updatedStatus = 'FINANCIAL_SANCTION_REJECTED';
+    actionName = 'FUNDING_AUTHORIZATION_REJECTED';
   }
-  
+
   const updatedFunding = {
     ...project.funding,
-    sanctioned: projectCost,
-    contracted: hasRecommendedContractor && decision === 'APPROVE' ? (project.recommendedAmount || project.funding.contracted) : project.funding.contracted,
-    remaining: projectCost - (project.funding.expenditure || 0),
+    contracted: decision === 'AUTHORIZE' && hasRecommendedContractor ? (project.recommendedAmount || canonicalSanctioned) : project.funding.contracted,
+    remaining: canonicalSanctioned - (project.funding.expenditure || 0),
   };
 
-  const tenderObj = decision === 'APPROVE' ? (project.tender || initializeProjectTender({ ...project, funding: updatedFunding, status: 'SANCTIONED' })) : project.tender;
-  if (tenderObj && decision === 'APPROVE' && hasRecommendedContractor) {
+  const tenderObj = decision === 'AUTHORIZE' ? (project.tender || initializeProjectTender({ ...project, funding: updatedFunding, status: 'SANCTIONED' })) : project.tender;
+  if (tenderObj && decision === 'AUTHORIZE' && hasRecommendedContractor) {
     tenderObj.status = 'AWARDED';
+  }
+
+  // Pre-apply to project object
+  project.funding = updatedFunding;
+
+  let docs = project.governanceDocuments || [];
+  let doc: any = null;
+
+  if (decision === 'AUTHORIZE') {
+    doc = generateGovernanceDocument(project, 'FUNDING_AUTHORIZATION_ORDER', actor, { reason });
+    // Suppress/supersede previous funding authorization orders
+    docs.forEach(d => {
+      if (d.docType === 'FUNDING_AUTHORIZATION_ORDER' && d.status !== 'VERIFIED') {
+        d.status = 'VERIFIED';
+      }
+    });
+    docs.push(doc);
   }
 
   const updatePayload: any = {
     status: updatedStatus,
-    sanctionedAt: decision === 'APPROVE' ? new Date().toISOString() : undefined,
     officialReviewNotes: reason || project.officialReviewNotes,
     funding: updatedFunding,
     tender: tenderObj,
+    governanceDocuments: docs,
   };
 
-  if (decision === 'APPROVE' && hasRecommendedContractor) {
-    updatePayload.contractorId = effectiveContractorId;
-    updatePayload.contractorName = effectiveContractorName;
-    updatePayload.assignmentEffectiveAt = new Date().toISOString();
-  }
-
   const updatedProject = dbStore.updateProject(projectId, updatePayload);
-  
-  // Record audit trail with the required details
+
+  // Log explicit audit event for authorization result
   dbStore.logAudit({
     actor: actor.name,
     actorRole: actor.role,
@@ -1411,17 +1733,319 @@ apiRouter.post('/projects/:id/sanction', (req: Request, res: Response) => {
     action: actionName,
     entityType: 'PROJECT',
     entityId: projectId,
+    projectId: projectId,
+    previousState: project.status,
+    newState: updatedStatus,
     decision: decision,
-    amount: projectCost,
-    reason: reason || 'Decision processed by Sanctioning Authority',
-    details: `${logDetails} Decision: ${decision}. Amount: ₹${(projectCost/100000).toFixed(1)} Lakhs.`,
+    amount: canonicalSanctioned,
+    reason: reason || `Funding authorization decision: ${decision}`,
+    details: `Policymaker ${actor.name} executed funding decision ${decision} for project ${projectId}. Status: ${updatedStatus}.`,
     correlationId: projectId,
   });
+
+  if (decision === 'AUTHORIZE' && doc) {
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'FUNDING_AUTHORIZATION_ORDER_GENERATED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'FUNDING_AUTHORIZED',
+      newState: 'FUNDING_AUTHORIZED',
+      amount: canonicalSanctioned,
+      decision: 'GENERATED',
+      reason: 'System generated Funding & Treasury Authorization Order',
+      details: `Funding / Treasury Authorization Order ${doc.refNumber} generated. Awaiting signature and upload to enable contractor assignment and physical execution.`,
+      correlationId: projectId,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'POLICYMAKER',
+      targetUserId: actor.id,
+      title: `Authorization Order Generated: ${project.name}`,
+      message: `Funding / Treasury Authorization Order ${doc.refNumber} generated. Please download, sign, and upload to enable execution.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+  }
+
+  if (decision !== 'AUTHORIZE') {
+    dbStore.createNotification({
+      targetRole: 'OFFICIAL',
+      targetUserId: '',
+      title: `Funding Authorization Decision: ${decision}`,
+      message: `Policymaker review result for ${project.name}: ${decision}. Reason: ${reason}`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+  }
+
+  res.json({ success: true, data: updatedProject });
+});
+
+apiRouter.get('/projects/:id/documents', (req: Request, res: Response) => {
+  const projectId = req.params.id;
+  const project = dbStore.getProjectById(projectId);
+  if (!project) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found.' } });
+  }
+  res.json({ success: true, data: project.governanceDocuments || [] });
+});
+
+apiRouter.post('/projects/:id/documents/generate', (req: Request, res: Response) => {
+  const actor = getActorSession(req);
+  const projectId = req.params.id;
+  const { docType, notes, approvedAmount } = req.body;
+
+  const project = dbStore.getProjectById(projectId);
+  if (!project) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found.' } });
+  }
+
+  // Check roles based on document type
+  if (docType === 'CONTRACTOR_RECOMMENDATION') {
+    if (actor.role !== 'OFFICIAL' && actor.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Officials can generate contractor recommendation reports.' } });
+    }
+  } else if (docType === 'FINANCIAL_SANCTION_ORDER') {
+    if (actor.role !== 'SANCTIONING_AUTHORITY' && actor.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Sanctioning Authorities can generate financial sanction orders.' } });
+    }
+  } else if (docType === 'FUNDING_AUTHORIZATION_ORDER') {
+    if (actor.role !== 'POLICYMAKER' && actor.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Policymakers can generate funding authorization orders.' } });
+    }
+  } else {
+    return res.status(400).json({ success: false, error: { code: 'INVALID_DOC_TYPE', message: 'Invalid document type.' } });
+  }
+
+  const docs = project.governanceDocuments || [];
   
-  res.json({
-    success: true,
-    data: updatedProject,
+  // Suppress/supersede previous documents of the same type
+  docs.forEach(d => {
+    if (d.docType === docType && d.status !== 'VERIFIED') {
+      d.status = 'VERIFIED';
+    }
   });
+
+  const newDoc = generateGovernanceDocument(project, docType, actor, { notes, approvedAmount });
+  docs.push(newDoc);
+
+  const updatedProject = dbStore.updateProject(projectId, {
+    governanceDocuments: docs
+  });
+
+  dbStore.logAudit({
+    actor: actor.name,
+    actorRole: actor.role,
+    actorId: actor.id,
+    actorName: actor.name,
+    action: `${docType}_GENERATED`,
+    entityType: 'PROJECT',
+    entityId: projectId,
+    projectId: projectId,
+    previousState: project.status,
+    newState: project.status,
+    amount: newDoc.amount,
+    details: `Generated system-certified ${newDoc.title} (${newDoc.refNumber}). Status: GENERATED.`,
+    correlationId: projectId,
+  });
+
+  res.json({ success: true, data: updatedProject });
+});
+
+apiRouter.post('/projects/:id/documents/:docId/upload', (req: Request, res: Response) => {
+  const actor = getActorSession(req);
+  const projectId = req.params.id;
+  const docId = req.params.docId;
+  const { fileUrl } = req.body;
+
+  const project = dbStore.getProjectById(projectId);
+  if (!project) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found.' } });
+  }
+
+  const docs = project.governanceDocuments || [];
+  const docIdx = docs.findIndex(d => d.id === docId);
+  if (docIdx === -1) {
+    return res.status(404).json({ success: false, error: { code: 'DOC_NOT_FOUND', message: 'Document not found on this project.' } });
+  }
+
+  const doc = docs[docIdx];
+  doc.status = 'SIGNED_DOCUMENT_UPLOADED';
+  doc.uploadedBy = actor.name;
+  doc.uploadedByRole = actor.role;
+  doc.uploadedAt = new Date().toISOString();
+  doc.fileUrl = fileUrl || `https://ais-pre-o6swgcfqjcx2a33df27tgu-523681569337.asia-southeast1.run.app/uploads/signed_doc_${doc.docType.toLowerCase()}_${Date.now()}.pdf`;
+
+  let updatedStatus = project.status;
+  let auditAction = '';
+  let auditDetails = '';
+
+  if (doc.docType === 'CONTRACTOR_RECOMMENDATION') {
+    updatedStatus = 'WAITING_FOR_FINANCIAL_SANCTION';
+    auditAction = 'FINANCIAL_SANCTION_SUBMITTED';
+    auditDetails = `Signed contractor recommendation uploaded by ${actor.name} (${actor.role}). Project moved to WAITING_FOR_FINANCIAL_SANCTION.`;
+    
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'RECOMMENDATION_DOCUMENT_UPLOADED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'CONTRACTOR_RECOMMENDED',
+      newState: 'CONTRACTOR_RECOMMENDED',
+      amount: doc.amount,
+      details: `Signed recommendation document (${doc.refNumber}) uploaded. Ready for financial sanction review.`,
+      correlationId: projectId,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'SANCTIONING_AUTHORITY',
+      targetUserId: '',
+      title: `Sanction Case Pending: ${project.name}`,
+      message: `Signed contractor recommendation uploaded. Proposed amount: INR ${doc.amount}. Awaiting financial sanction.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+
+  } else if (doc.docType === 'FINANCIAL_SANCTION_ORDER') {
+    updatedStatus = 'WAITING_FOR_FUNDING_AUTHORIZATION';
+    auditAction = 'FINANCIAL_SANCTION_APPROVED';
+    auditDetails = `Signed financial sanction order uploaded by ${actor.name} (${actor.role}). Project moved to WAITING_FOR_FUNDING_AUTHORIZATION.`;
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'SANCTION_DOCUMENT_UPLOADED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'FINANCIAL_SANCTIONED',
+      newState: 'FINANCIAL_SANCTIONED',
+      amount: doc.amount,
+      details: `Signed financial sanction order (${doc.refNumber}) uploaded for INR ${doc.amount}.`,
+      correlationId: projectId,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'POLICYMAKER',
+      targetUserId: '',
+      title: `Funding Authorization Required: ${project.name}`,
+      message: `Signed sanction order uploaded for INR ${doc.amount}. Awaiting policymaker funding authorization.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+
+  } else if (doc.docType === 'FUNDING_AUTHORIZATION_ORDER') {
+    const hasRecommendedContractor = Boolean(project.recommendedContractorId);
+    updatedStatus = hasRecommendedContractor ? 'CONTRACTOR_ASSIGNED' : 'EXECUTION_ENABLED';
+    auditAction = 'FUNDING_AUTHORIZED_EFFECTIVE';
+    auditDetails = `Signed funding authorization order uploaded by ${actor.name} (${actor.role}). Project moved to ${updatedStatus}. Execution is now enabled.`;
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'AUTHORIZATION_DOCUMENT_UPLOADED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'FUNDING_AUTHORIZED',
+      newState: 'FUNDING_AUTHORIZED',
+      amount: doc.amount,
+      details: `Signed funding authorization order (${doc.refNumber}) uploaded. Execution enabled.`,
+      correlationId: projectId,
+    });
+
+    if (hasRecommendedContractor) {
+      dbStore.logAudit({
+        actor: actor.name,
+        actorRole: actor.role,
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'CONTRACTOR_ASSIGNMENT_EFFECTIVE',
+        entityType: 'PROJECT',
+        entityId: projectId,
+        projectId: projectId,
+        previousState: 'FUNDING_AUTHORIZED',
+        newState: 'CONTRACTOR_ASSIGNED',
+        amount: doc.amount,
+        details: `Contractor ${project.recommendedContractorName} assignment is now effective following signed funding authorization.`,
+        correlationId: projectId,
+      });
+    }
+
+    dbStore.createNotification({
+      targetRole: 'OFFICIAL',
+      targetUserId: '',
+      title: `Project Execution Enabled: ${project.name}`,
+      message: `Signed funding authorization uploaded. Contractor assignment is now effective. Contractor can begin execution.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+
+    dbStore.createNotification({
+      targetRole: 'CONTRACTOR',
+      targetUserId: project.recommendedContractorId || '',
+      title: `Contract Awarded: ${project.name}`,
+      message: `Funding authorized and contract assigned. Proceed to milestones and evidence submission.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+    });
+  }
+
+  // Preserve the updated documents array
+  docs[docIdx] = doc;
+
+  const updatePayload: any = {
+    status: updatedStatus,
+    governanceDocuments: docs,
+  };
+
+  if (doc.docType === 'FUNDING_AUTHORIZATION_ORDER' && Boolean(project.recommendedContractorId)) {
+    updatePayload.contractorId = project.recommendedContractorId;
+    updatePayload.contractorName = project.recommendedContractorName;
+    updatePayload.assignmentEffectiveAt = new Date().toISOString();
+    
+    // Also update tender status
+    const tenderObj = project.tender;
+    if (tenderObj) {
+      tenderObj.status = 'AWARDED';
+      updatePayload.tender = tenderObj;
+    }
+  }
+
+  const updatedProject = dbStore.updateProject(projectId, updatePayload);
+
+  // Log final transition audit log
+  dbStore.logAudit({
+    actor: actor.name,
+    actorRole: actor.role,
+    actorId: actor.id,
+    actorName: actor.name,
+    action: auditAction,
+    entityType: 'PROJECT',
+    entityId: projectId,
+    projectId: projectId,
+    previousState: project.status,
+    newState: updatedStatus,
+    amount: doc.amount,
+    reason: `Signed document ${doc.title} uploaded by ${actor.name}.`,
+    details: auditDetails,
+    correlationId: projectId,
+  });
+
+  res.json({ success: true, data: updatedProject });
 });
 
 apiRouter.post('/projects/:id/tender/quotes', (req: Request, res: Response) => {
@@ -1550,6 +2174,27 @@ apiRouter.post('/projects/:id/select-contractor', (req: Request, res: Response) 
     project.tender.status = 'EVALUATION';
   }
 
+  // Pre-set recommendation parameters on project
+  project.recommendedContractorId = winningQuote.contractorId;
+  project.recommendedContractorName = winningQuote.contractorName;
+  project.recommendedQuoteId = winningQuote.id;
+  project.recommendedAmount = winningQuote.quotedAmount;
+  project.recommendedBy = actor.name;
+  project.recommendedAt = new Date().toISOString();
+  project.recommendationReason = reason || 'Official contractor recommendation for financial sanction.';
+
+  // Generate Contractor Recommendation Document
+  const doc = generateGovernanceDocument(project, 'CONTRACTOR_RECOMMENDATION', actor, { reason });
+  const docs = project.governanceDocuments || [];
+  
+  // Suppress/supersede any non-verified previous contractor recommendation reports on this project
+  docs.forEach(d => {
+    if (d.docType === 'CONTRACTOR_RECOMMENDATION' && d.status !== 'VERIFIED') {
+      d.status = 'VERIFIED';
+    }
+  });
+  docs.push(doc);
+
   const updatedProject = dbStore.updateProject(projectId, {
     status: 'CONTRACTOR_RECOMMENDED',
     recommendedContractorId: winningQuote.contractorId,
@@ -1561,6 +2206,7 @@ apiRouter.post('/projects/:id/select-contractor', (req: Request, res: Response) 
     recommendationReason: reason || 'Official contractor recommendation for financial sanction.',
     quotes,
     tender: project.tender,
+    governanceDocuments: docs,
   });
 
   dbStore.logAudit({
@@ -1571,18 +2217,39 @@ apiRouter.post('/projects/:id/select-contractor', (req: Request, res: Response) 
     action: 'CONTRACTOR_RECOMMENDED',
     entityType: 'PROJECT',
     entityId: projectId,
+    projectId: projectId,
+    previousState: project.status,
+    newState: 'CONTRACTOR_RECOMMENDED',
     amount: winningQuote.quotedAmount,
     decision: 'RECOMMENDED',
     reason: reason || 'Official tender contractor recommendation',
-    details: `Official ${actor.name} recommended contractor ${winningQuote.contractorName} for INR ${winningQuote.quotedAmount}, awaiting Sanctioning Officer financial sanction.`,
+    details: `Official ${actor.name} recommended contractor ${winningQuote.contractorName} for INR ${winningQuote.quotedAmount}.`,
+    correlationId: projectId,
+  });
+
+  dbStore.logAudit({
+    actor: actor.name,
+    actorRole: actor.role,
+    actorId: actor.id,
+    actorName: actor.name,
+    action: 'CONTRACTOR_RECOMMENDATION_GENERATED',
+    entityType: 'PROJECT',
+    entityId: projectId,
+    projectId: projectId,
+    previousState: 'CONTRACTOR_RECOMMENDED',
+    newState: 'CONTRACTOR_RECOMMENDED',
+    amount: winningQuote.quotedAmount,
+    decision: 'GENERATED',
+    reason: 'System generated Contractor Recommendation & Procurement Report',
+    details: `Document ${doc.refNumber} generated for project ${projectId}. Awaiting official signature and physical upload to submit for financial sanction.`,
     correlationId: projectId,
   });
 
   dbStore.createNotification({
-    targetRole: 'POLICYMAKER',
-    targetUserId: '',
-    title: `Sanction Case Pending: ${project.name}`,
-    message: `Official recommended ${winningQuote.contractorName} for INR ${winningQuote.quotedAmount}. Awaiting Financial Sanction & Treasury Authorization.`,
+    targetRole: 'OFFICIAL',
+    targetUserId: actor.id,
+    title: `Recommendation Report Generated: ${project.name}`,
+    message: `Contractor Recommendation & Procurement Report ${doc.refNumber} generated. Please download, apply seal, and upload the signed copy to progress.`,
     entityId: project.id,
     entityType: 'PROJECT',
   });
@@ -3266,7 +3933,7 @@ apiRouter.post('/projects/assign', (req: Request, res: Response) => {
   const amount = Number(contractedAmount) || project.funding.sanctioned;
 
   const updatedProject = dbStore.updateProject(projectId, {
-    status: 'CONTRACTOR_RECOMMENDED',
+    status: 'WAITING_FOR_FINANCIAL_SANCTION',
     recommendedContractorId: contractorId || 'contractor-01',
     recommendedContractorName: contractorName,
     recommendedAmount: amount,
@@ -3283,10 +3950,31 @@ apiRouter.post('/projects/assign', (req: Request, res: Response) => {
     action: 'CONTRACTOR_RECOMMENDED',
     entityType: 'PROJECT',
     entityId: projectId,
+    projectId: projectId,
+    previousState: project.status,
+    newState: 'CONTRACTOR_RECOMMENDED',
     amount,
     decision: 'RECOMMENDED',
     reason: `Official contractor recommendation for ${contractorName} with proposed amount INR ${amount}`,
-    details: `Official ${actor.name} recommended contractor ${contractorName} for INR ${amount}, awaiting Sanctioning Officer financial sanction.`,
+    details: `Official ${actor.name} recommended contractor ${contractorName} for INR ${amount}.`,
+    correlationId: projectId,
+  });
+
+  dbStore.logAudit({
+    actor: actor.name,
+    actorRole: actor.role,
+    actorId: actor.id,
+    actorName: actor.name,
+    action: 'FINANCIAL_SANCTION_SUBMITTED',
+    entityType: 'PROJECT',
+    entityId: projectId,
+    projectId: projectId,
+    previousState: 'CONTRACTOR_RECOMMENDED',
+    newState: 'WAITING_FOR_FINANCIAL_SANCTION',
+    amount,
+    decision: 'SUBMITTED',
+    reason: `Official submitted proposal with contractor recommendation ${contractorName} (INR ${amount}) for financial sanction review.`,
+    details: `Official ${actor.name} submitted project ${projectId} with recommended contractor ${contractorName} for financial sanction approval. Proposed amount: INR ${amount}.`,
     correlationId: projectId,
   });
 

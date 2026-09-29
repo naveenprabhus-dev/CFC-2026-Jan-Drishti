@@ -71,8 +71,10 @@ export type ProjectStatus =
   | 'SANCTIONED'
   | 'TENDERED'
   | 'CONTRACTOR_RECOMMENDED'
+  | 'WAITING_FOR_FINANCIAL_SANCTION'
   | 'PENDING_FINANCIAL_SANCTION'
   | 'FINANCIAL_SANCTIONED'
+  | 'WAITING_FOR_FUNDING_AUTHORIZATION'
   | 'FINANCIAL_SANCTION_REJECTED'
   | 'FUNDING_AUTHORIZED'
   | 'EXECUTION_ENABLED'
@@ -290,6 +292,46 @@ export interface Project {
   evidence?: ContractorEvidence[];
   tender?: ProjectTender;
   quotes?: TenderQuote[];
+  governanceDocuments?: GovernanceDocument[];
+  homeULB?: string;
+}
+
+export type GovernanceDocType = 
+  | 'CONTRACTOR_RECOMMENDATION'
+  | 'FINANCIAL_SANCTION_ORDER'
+  | 'FUNDING_AUTHORIZATION_ORDER';
+
+export type GovernanceDocStatus =
+  | 'GENERATED'
+  | 'DOWNLOADED'
+  | 'SIGNATURE_PENDING'
+  | 'SIGNED_UPLOAD_PENDING'
+  | 'SIGNED_DOCUMENT_UPLOADED'
+  | 'VERIFIED';
+
+export interface GovernanceDocument {
+  id: string;
+  projectId: string;
+  workTokenId: string;
+  requestId: string;
+  docType: GovernanceDocType;
+  title: string;
+  refNumber: string;
+  version: number;
+  status: GovernanceDocStatus;
+  createdBy: string;
+  createdByRole: string;
+  createdAt: string;
+  generatedContent: any;
+  uploadedBy?: string;
+  uploadedByRole?: string;
+  uploadedAt?: string;
+  fileUrl?: string;
+  amount: number;
+  contractorId?: string;
+  contractorName?: string;
+  decisionReference?: string;
+  notes?: string;
 }
 
 export interface ContractorEvidence {

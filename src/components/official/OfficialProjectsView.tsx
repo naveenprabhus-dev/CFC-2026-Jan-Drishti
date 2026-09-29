@@ -62,6 +62,18 @@ export const OfficialProjectsView: React.FC<OfficialProjectsViewProps> = ({
         return 'bg-blue-100 text-blue-800 border-blue-300';
       case 'VERIFICATION_REQUIRED':
         return 'bg-purple-100 text-purple-800 border-purple-300 animate-pulse';
+      case 'WAITING_FOR_FINANCIAL_SANCTION':
+        return 'bg-amber-100 text-amber-900 border-amber-300 font-bold';
+      case 'CONTRACTOR_RECOMMENDED':
+        return 'bg-amber-50 text-amber-800 border-amber-200 font-bold';
+      case 'WAITING_FOR_FUNDING_AUTHORIZATION':
+        return 'bg-purple-100 text-purple-900 border-purple-300 font-bold';
+      case 'FINANCIAL_SANCTIONED':
+        return 'bg-indigo-100 text-indigo-900 border-indigo-300 font-bold';
+      case 'FUNDING_AUTHORIZED':
+        return 'bg-emerald-50 text-emerald-900 border-emerald-200 font-bold';
+      case 'EXECUTION_ENABLED':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-300';
       case 'DELAYED':
         return 'bg-red-100 text-red-800 border-red-300 animate-pulse';
       case 'CONTRACTOR_ASSIGNED':
@@ -146,7 +158,17 @@ export const OfficialProjectsView: React.FC<OfficialProjectsViewProps> = ({
 
                 <div className="flex items-center gap-2">
                   <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${getStatusBadge(p.status)}`}>
-                    {p.status.replace('_', ' ')}
+                    {p.status === 'CONTRACTOR_RECOMMENDED'
+                      ? 'RECOMMENDED (SIGNATURE PENDING)'
+                      : p.status === 'WAITING_FOR_FINANCIAL_SANCTION'
+                      ? 'WAITING FOR FINANCIAL SANCTION'
+                      : p.status === 'FINANCIAL_SANCTIONED'
+                      ? 'FINANCIAL SANCTIONED (ORDER SIGNING)'
+                      : p.status === 'WAITING_FOR_FUNDING_AUTHORIZATION'
+                      ? 'WAITING FOR FUNDING AUTHORIZATION'
+                      : p.status === 'FUNDING_AUTHORIZED'
+                      ? 'FUNDING AUTHORIZED (ORDER SIGNING)'
+                      : p.status.replace(/_/g, ' ')}
                   </span>
                 </div>
               </div>
@@ -233,14 +255,21 @@ export const OfficialProjectsView: React.FC<OfficialProjectsViewProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="flex flex-wrap items-center gap-2">
                   {!p.contractorId && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenAssignContractor(p)}
-                      className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition cursor-pointer shadow-2xs flex items-center gap-1.5"
-                    >
-                      <HardHat className="w-3.5 h-3.5" />
-                      <span>Assign Contractor</span>
-                    </button>
+                    p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'CONTRACTOR_RECOMMENDED' || p.status === 'PENDING_FINANCIAL_SANCTION' ? (
+                      <span className="px-3.5 py-2 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 font-bold text-xs flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Recommendation Submitted • Awaiting Sanctioning Authority</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onOpenAssignContractor(p)}
+                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition cursor-pointer shadow-2xs flex items-center gap-1.5"
+                      >
+                        <HardHat className="w-3.5 h-3.5" />
+                        <span>Recommend Contractor</span>
+                      </button>
+                    )
                   )}
 
                   <button

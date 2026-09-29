@@ -92,7 +92,7 @@ export const AssignContractorModal: React.FC<AssignContractorModalProps> = ({
             </span>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base">Assign Execution Contractor</h3>
+                <h3 className="font-bold text-base">Recommend Contractor for Financial Sanction</h3>
                 <ProvenanceBadge type="OFFICIAL_DECISION" />
               </div>
               <p className="text-xs text-slate-300 mt-0.5 font-mono">{project.id} • {project.name}</p>
@@ -178,11 +178,11 @@ export const AssignContractorModal: React.FC<AssignContractorModalProps> = ({
               className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition disabled:opacity-50 cursor-pointer"
             >
               {isSubmitting ? (
-                <span>Assigning...</span>
+                <span>Submitting Recommendation...</span>
               ) : (
                 <>
                   <HardHat className="w-4 h-4" />
-                  <span>Assign Contractor & Issue Execution Order</span>
+                  <span>Submit Recommendation for Sanction</span>
                 </>
               )}
             </button>

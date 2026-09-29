@@ -11,6 +11,7 @@ import {
   AppNotification,
   UserSession,
   PolicymakerIntelligenceData,
+  GovernanceDocument,
 } from '../types/domain';
 
 let currentUserId = 'admin-001';
@@ -44,13 +45,42 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     headers,
   });
 
-  const contentType = res.headers.get('content-type');
-  if (!contentType || !contentType.includes('application/json')) {
-    throw new Error(`Server returned non-JSON response (${res.status} ${res.statusText})`);
+  // Read the response body exactly once as text
+  let bodyText = '';
+  try {
+    bodyText = await res.text();
+  } catch (err) {
+    // Body stream could not be read (e.g. empty response or network interruption)
   }
 
-  const json = await res.json();
-  if (!res.ok || !json.success) {
+  // Try parsing the text as JSON in-memory (completely safe, does not consume the stream again)
+  let json: any = null;
+  if (bodyText) {
+    try {
+      json = JSON.parse(bodyText);
+    } catch (e) {
+      // Body is not valid JSON
+    }
+  }
+
+  if (!res.ok) {
+    if (json && json.success === false && json.error) {
+      throw new Error(json.error.message || `Request failed with status ${res.status}`);
+    }
+
+    // If it is an HTML error page, do not show raw HTML tags/markup to the user
+    if (bodyText && bodyText.trim().startsWith('<')) {
+      throw new Error(`Request failed with status ${res.status} ${res.statusText || 'Forbidden'}`);
+    }
+
+    throw new Error(bodyText || `Request failed with status ${res.status} ${res.statusText}`);
+  }
+
+  if (json === null) {
+    throw new Error(`Server returned non-JSON response (${res.status} ${res.statusText}): ${bodyText.substring(0, 100)}`);
+  }
+
+  if (!json.success) {
     throw new Error(json.error?.message || `Request failed with status ${res.status}`);
   }
 
@@ -107,12 +137,12 @@ export const apiClient = {
       body: JSON.stringify(payload),
     }),
 
-  // Administrator Institutional Provisioning (Official / Policymaker ONLY)
+  // Administrator Institutional Provisioning (Official / Policymaker / Sanctioning Authority)
   provisionOfficialAccount: (payload: {
     id?: string;
     name: string;
     email: string;
-    role: 'OFFICIAL' | 'POLICYMAKER';
+    role: 'OFFICIAL' | 'POLICYMAKER' | 'SANCTIONING_AUTHORITY';
     department?: string;
     jurisdiction?: string;
     designation?: string;
@@ -120,13 +150,22 @@ export const apiClient = {
     password?: string;
     primaryLanguage?: string;
     authorityScope?: string;
+    financialThreshold?: number;
+    homeState?: string;
+    homeDistrict?: string;
+    homeULB?: string;
   }) =>
     request<UserSession>('/api/admin/provision', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  // Milestone Verification (Governance Prerequisites Locked)
+  // Policymaker Funding Authorization
+  authorizeFunding: (projectId: string, payload: { decision: 'AUTHORIZE' | 'RETURN' | 'REJECT'; reason?: string; sanctionedAmount?: number }) =>
+    request<Project>(`/api/projects/${projectId}/authorize-funding`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   verifyMilestone: (projectId: string, milestoneId: string, officialNotes?: string) =>
     request<Project>(`/api/projects/${projectId}/milestones/${milestoneId}/verify`, {
       method: 'POST',
@@ -147,6 +186,26 @@ export const apiClient = {
     approvedAmount?: number;
   }) =>
     request<Project>(`/api/projects/${projectId}/sanction`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // Governance Documents API
+  getGovernanceDocuments: (projectId: string) =>
+    request<GovernanceDocument[]>(`/api/projects/${projectId}/documents`),
+
+  generateGovernanceDocument: (projectId: string, payload: {
+    docType: 'CONTRACTOR_RECOMMENDATION' | 'FINANCIAL_SANCTION_ORDER' | 'FUNDING_AUTHORIZATION_ORDER';
+    notes?: string;
+    approvedAmount?: number;
+  }) =>
+    request<Project>(`/api/projects/${projectId}/documents/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  uploadSignedDocument: (projectId: string, docId: string, payload: { fileUrl?: string }) =>
+    request<Project>(`/api/projects/${projectId}/documents/${docId}/upload`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

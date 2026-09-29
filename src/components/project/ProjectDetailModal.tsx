@@ -7,9 +7,12 @@ import {
   CommunityObservation,
   AuditEvent,
   UserSession,
+  GovernanceDocType,
 } from '../../types/domain';
 import { apiClient } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { GovernanceDocumentConsole } from '../common/GovernanceDocumentConsole';
+import { DocumentController } from '../common/DocumentController';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { DigitalThreadBadge } from '../common/DigitalThreadBadge';
 import { EvidenceImage } from '../common/EvidenceImage';
@@ -59,8 +62,23 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   const [projectData, setProjectData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    'OVERVIEW' | 'MILESTONES' | 'EVIDENCE' | 'FUNDING' | 'INSPECTIONS' | 'AUDIT'
+    'OVERVIEW' | 'GOVERNANCE' | 'MILESTONES' | 'EVIDENCE' | 'FUNDING' | 'INSPECTIONS' | 'AUDIT'
   >('OVERVIEW');
+
+  const [selectedDocType, setSelectedDocType] = useState<GovernanceDocType>('CONTRACTOR_RECOMMENDATION');
+
+  // Automatically focus on the document type matching the current stage
+  useEffect(() => {
+    if (projectData) {
+      if (projectData.status === 'CONTRACTOR_RECOMMENDED') {
+        setSelectedDocType('CONTRACTOR_RECOMMENDATION');
+      } else if (projectData.status === 'WAITING_FOR_FINANCIAL_SANCTION' || projectData.status === 'FINANCIAL_SANCTIONED') {
+        setSelectedDocType('FINANCIAL_SANCTION_ORDER');
+      } else if (projectData.status === 'WAITING_FOR_FUNDING_AUTHORIZATION' || projectData.status === 'FUNDING_AUTHORIZED') {
+        setSelectedDocType('FUNDING_AUTHORIZATION_ORDER');
+      }
+    }
+  }, [projectData?.status]);
 
   // Modals
   const [inspectingEvidence, setInspectingEvidence] = useState<{
@@ -338,6 +356,21 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
             }`}
           >
             Overview & Scope
+          </button>
+          <button
+            onClick={() => setActiveTab('GOVERNANCE')}
+            className={`px-4 py-3 border-b-2 cursor-pointer transition flex items-center gap-1.5 ${
+              activeTab === 'GOVERNANCE'
+                ? 'border-emerald-600 text-emerald-950'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <span>Governance Orders</span>
+            {p.governanceDocuments && p.governanceDocuments.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                {p.governanceDocuments.filter(d => d.status === 'SIGNED_DOCUMENT_UPLOADED').length}/{p.governanceDocuments.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('MILESTONES')}
@@ -797,6 +830,216 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB: GOVERNANCE ORDERS & DIGITAL THREAD */}
+          {activeTab === 'GOVERNANCE' && (
+            <div className="space-y-6 animate-in fade-in duration-150">
+              {/* Governance Thread Visual Timeline */}
+              <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
+                    Decentralized Multi-Tier Governance Thread
+                  </h4>
+                </div>
+
+                {/* 3 Step Governance Pipeline */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative">
+                  {/* Step 1: Procurement */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    p.status === 'CONTRACTOR_RECOMMENDED'
+                      ? 'bg-amber-50/50 border-amber-200 shadow-2xs'
+                      : p.governanceDocuments?.some(d => d.docType === 'CONTRACTOR_RECOMMENDATION' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                      ? 'bg-emerald-50/30 border-emerald-100'
+                      : 'bg-white border-slate-200'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                        p.governanceDocuments?.some(d => d.docType === 'CONTRACTOR_RECOMMENDATION' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}>1</span>
+                      <strong className="text-xs text-slate-800 font-bold block">Procurement</strong>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-2 space-y-1">
+                      <div><span className="font-bold text-slate-600">Authority:</span> Government Official</div>
+                      <div><span className="font-bold text-slate-600">Document:</span> Recommendation Report</div>
+                      <div><span className="font-bold text-slate-600">Status:</span> {
+                        p.governanceDocuments?.some(d => d.docType === 'CONTRACTOR_RECOMMENDATION' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                          ? 'Signed & Submitted'
+                          : p.status === 'CONTRACTOR_RECOMMENDED'
+                          ? 'Generated (Signing Pending)'
+                          : 'Awaiting Bidding'
+                      }</div>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Sanction */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'FINANCIAL_SANCTIONED'
+                      ? 'bg-amber-50/50 border-amber-200 shadow-2xs'
+                      : p.governanceDocuments?.some(d => d.docType === 'FINANCIAL_SANCTION_ORDER' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                      ? 'bg-emerald-50/30 border-emerald-100'
+                      : 'bg-white border-slate-200'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                        p.governanceDocuments?.some(d => d.docType === 'FINANCIAL_SANCTION_ORDER' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}>2</span>
+                      <strong className="text-xs text-slate-800 font-bold block">Financial Sanction</strong>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-2 space-y-1">
+                      <div><span className="font-bold text-slate-600">Authority:</span> Sanctioning Authority</div>
+                      <div><span className="font-bold text-slate-600">Document:</span> Sanction Order</div>
+                      <div><span className="font-bold text-slate-600">Status:</span> {
+                        p.governanceDocuments?.some(d => d.docType === 'FINANCIAL_SANCTION_ORDER' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                          ? 'Signed & Certified'
+                          : p.status === 'FINANCIAL_SANCTIONED'
+                          ? 'Generated (Signing Pending)'
+                          : p.status === 'WAITING_FOR_FINANCIAL_SANCTION'
+                          ? 'Awaiting Sanction'
+                          : 'Locked'
+                      }</div>
+                    </div>
+                  </div>
+
+                  {/* Step 3: Authorization */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    p.status === 'WAITING_FOR_FUNDING_AUTHORIZATION' || p.status === 'FUNDING_AUTHORIZED'
+                      ? 'bg-amber-50/50 border-amber-200 shadow-2xs'
+                      : p.governanceDocuments?.some(d => d.docType === 'FUNDING_AUTHORIZATION_ORDER' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                      ? 'bg-emerald-50/30 border-emerald-100'
+                      : 'bg-white border-slate-200'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                        p.governanceDocuments?.some(d => d.docType === 'FUNDING_AUTHORIZATION_ORDER' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}>3</span>
+                      <strong className="text-xs text-slate-800 font-bold block">Treasury Release</strong>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-2 space-y-1">
+                      <div><span className="font-bold text-slate-600">Authority:</span> Policymaker</div>
+                      <div><span className="font-bold text-slate-600">Document:</span> Authorization Order</div>
+                      <div><span className="font-bold text-slate-600">Status:</span> {
+                        p.governanceDocuments?.some(d => d.docType === 'FUNDING_AUTHORIZATION_ORDER' && d.status === 'SIGNED_DOCUMENT_UPLOADED')
+                          ? 'Authorized & Effective'
+                          : p.status === 'FUNDING_AUTHORIZED'
+                          ? 'Generated (Signing Pending)'
+                          : p.status === 'WAITING_FOR_FUNDING_AUTHORIZATION'
+                          ? 'Awaiting Authorization'
+                          : 'Locked'
+                      }</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* State Visibility Card */}
+                <div className="bg-slate-900 text-slate-100 rounded-xl p-4 text-xs font-mono grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Current Stage</span>
+                    <span className="text-amber-400 font-bold block mt-0.5">{p.status.replace(/_/g, ' ')}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Responsible Authority</span>
+                    <span className="text-slate-100 font-bold block mt-0.5">{
+                      p.status === 'CONTRACTOR_RECOMMENDED'
+                        ? 'Government Official'
+                        : (p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'FINANCIAL_SANCTIONED')
+                        ? 'Sanctioning Authority'
+                        : (p.status === 'WAITING_FOR_FUNDING_AUTHORIZATION' || p.status === 'FUNDING_AUTHORIZED')
+                        ? 'Policymaker'
+                        : 'Contractor & Inspectors'
+                    }</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Required Document Gate</span>
+                    <span className="text-slate-100 font-bold block mt-0.5">{
+                      p.status === 'CONTRACTOR_RECOMMENDED'
+                        ? 'Contractor Recommendation Report'
+                        : (p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'FINANCIAL_SANCTIONED')
+                        ? 'Financial Sanction Order'
+                        : (p.status === 'WAITING_FOR_FUNDING_AUTHORIZATION' || p.status === 'FUNDING_AUTHORIZED')
+                        ? 'Funding Authorization Order'
+                        : 'N/A'
+                    }</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Unified Stage-by-Stage Document Controller */}
+              <div className="pt-2">
+                <DocumentController
+                  project={p}
+                  onDocumentActionSuccess={async (updatedProj) => {
+                    setProjectData(updatedProj);
+                    if (onProjectUpdated) {
+                      onProjectUpdated();
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Document Selector & Console */}
+              <div className="space-y-4 pt-6 border-t border-slate-200 mt-6">
+                <div className="flex items-center justify-between">
+                  <h5 className="font-extrabold text-xs text-slate-800 uppercase tracking-wider">
+                    Select Governance Document to View / Sign
+                  </h5>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    onClick={() => setSelectedDocType('CONTRACTOR_RECOMMENDATION')}
+                    className={`p-3 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                      selectedDocType === 'CONTRACTOR_RECOMMENDATION'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Procurement Recommendation
+                  </button>
+                  <button
+                    onClick={() => setSelectedDocType('FINANCIAL_SANCTION_ORDER')}
+                    disabled={!p.governanceDocuments?.some(d => d.docType === 'CONTRACTOR_RECOMMENDATION' && d.status === 'SIGNED_DOCUMENT_UPLOADED')}
+                    className={`p-3 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                      selectedDocType === 'FINANCIAL_SANCTION_ORDER'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                  >
+                    Financial Sanction Order
+                  </button>
+                  <button
+                    onClick={() => setSelectedDocType('FUNDING_AUTHORIZATION_ORDER')}
+                    disabled={!p.governanceDocuments?.some(d => d.docType === 'FINANCIAL_SANCTION_ORDER' && d.status === 'SIGNED_DOCUMENT_UPLOADED')}
+                    className={`p-3 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                      selectedDocType === 'FUNDING_AUTHORIZATION_ORDER'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                  >
+                    Treasury Authorization Order
+                  </button>
+                </div>
+
+                <div className="pt-2">
+                  <GovernanceDocumentConsole
+                    project={p}
+                    docType={selectedDocType}
+                    onDocumentActionSuccess={async (updatedProj) => {
+                      setProjectData(updatedProj);
+                      if (onProjectUpdated) {
+                        onProjectUpdated();
+                      }
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           )}
 

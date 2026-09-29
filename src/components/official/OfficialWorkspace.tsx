@@ -371,18 +371,21 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
             </span>
           </button>
 
-          {/* 4. Finance & Procurement */}
+          {/* 4. Procurement & Contractor Review */}
           <button
             type="button"
-            onClick={() => setActiveTab('FINANCE_PROCUREMENT')}
+            onClick={() => {
+              setActiveTab('FINANCE_PROCUREMENT');
+              setFinanceSubView('PROCUREMENT');
+            }}
             className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
               activeTab === 'FINANCE_PROCUREMENT'
                 ? 'bg-amber-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
             }`}
           >
-            <DollarSign className="w-4 h-4" />
-            <span>{t('navFinanceProcurement') || 'Finance & Procurement'}</span>
+            <Briefcase className="w-4 h-4" />
+            <span>Procurement & Contractor Review</span>
           </button>
 
           {/* 5. Inspections & Evidence */}
@@ -593,19 +596,6 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
             <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-2xs flex items-center gap-2 overflow-x-auto">
               <button
                 type="button"
-                onClick={() => setFinanceSubView('FUNDING')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  financeSubView === 'FUNDING'
-                    ? 'bg-emerald-700 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <DollarSign className="w-3.5 h-3.5" />
-                <span>Funding & Budget Ledger</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setFinanceSubView('PROCUREMENT')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
                   financeSubView === 'PROCUREMENT'
@@ -630,13 +620,6 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
                 <span>Contractor Directory & Performance</span>
               </button>
             </div>
-
-            {financeSubView === 'FUNDING' && (
-              <OfficialFundingView
-                projects={projects}
-                onOpenProjectDetail={(pId) => setActiveProjectDetailId(pId)}
-              />
-            )}
 
             {financeSubView === 'PROCUREMENT' && (
               <OfficialProcurementView
