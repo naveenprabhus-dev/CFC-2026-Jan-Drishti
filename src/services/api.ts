@@ -440,6 +440,12 @@ export const apiClient = {
       body: JSON.stringify({ projectId }),
     }),
 
+  acceptWorkOrder: (projectId: string, acceptanceNotes?: string) =>
+    request<Project>(`/api/contractor/work-orders/${projectId}/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ acceptanceNotes }),
+    }),
+
   completeProject: (projectId: string, finalNotes?: string) =>
     request<Project>('/api/projects/complete', {
       method: 'POST',

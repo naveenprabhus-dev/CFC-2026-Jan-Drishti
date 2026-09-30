@@ -136,14 +136,6 @@ export function getAdminActorForPreview(req: Request, res: Response): UserSessio
     }
   }
 
-  // 3. If actor is unauthenticated (e.g. initial launch or quick persona exploration), resolve canonical administrator
-  if (!actor) {
-    const defaultAdmin = dbStore.getUserById(DEFAULT_ADMIN.id) || dbStore.getUsers().find((u) => u.role === 'ADMIN');
-    if (defaultAdmin && defaultAdmin.status !== 'inactive') {
-      return sanitizeUser(defaultAdmin);
-    }
-  }
-
   res.status(403).json({
     success: false,
     error: { code: 'FORBIDDEN', message: 'Administrator privileges required to start or switch admin preview.' },
@@ -702,12 +694,12 @@ apiRouter.post('/auth/register', (req: Request, res: Response) => {
   }
 
   // Prevent self-registration into privileged roles
-  if (role === 'ADMIN' || role === 'OFFICIAL' || role === 'POLICYMAKER') {
+  if (role === 'ADMIN' || role === 'OFFICIAL' || role === 'POLICYMAKER' || role === 'SANCTIONING_AUTHORITY') {
     return res.status(403).json({
       success: false,
       error: {
         code: 'PRIVILEGE_ESCALATION_FORBIDDEN',
-        message: 'Government Official and Policymaker accounts must be provisioned by the Platform Administrator.',
+        message: 'Government Official, Policymaker, and Sanctioning Authority accounts must be provisioned by the Platform Administrator.',
       },
     });
   }
@@ -3011,6 +3003,109 @@ apiRouter.post('/projects/:id/select-contractor', (req: Request, res: Response) 
   res.json({ success: true, data: updatedProject });
 });
 
+// Contractor Work Order Acceptance
+apiRouter.post('/contractor/work-orders/:id/accept', (req: Request, res: Response) => {
+  const actor = requireAuth(req, res);
+  if (!actor) return;
+  if (actor.role !== 'CONTRACTOR' && actor.role !== 'ADMIN') {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Only the assigned Contractor can accept the Work Order.' },
+    });
+  }
+
+  const projectId = req.params.id;
+  const project = dbStore.getProjectById(projectId);
+  if (!project) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Project not found.' },
+    });
+  }
+
+  // Verify actor is the awarded contractor
+  const assignedContractorId = project.contractorId || project.recommendedContractorId;
+  if (actor.role === 'CONTRACTOR' && assignedContractorId && assignedContractorId !== actor.id) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED_CONTRACTOR', message: 'You are not the designated contractor for this Work Order.' },
+    });
+  }
+
+  // Prevent duplicate acceptance
+  if (project.workOrderAccepted && (project.status === 'IN_PROGRESS' || project.status === 'COMPLETED')) {
+    return res.status(409).json({
+      success: false,
+      error: { code: 'WORK_ORDER_ALREADY_ACCEPTED', message: 'This Work Order has already been accepted and execution initiated.' },
+    });
+  }
+
+  const { acceptanceNotes } = req.body;
+  const now = new Date().toISOString();
+
+  // Mark Work Order document as accepted if present
+  const docs = project.governanceDocuments || [];
+  docs.forEach((d) => {
+    if (d.docType === 'WORK_ORDER') {
+      d.status = 'VERIFIED';
+    }
+  });
+
+  const updatedProject = dbStore.updateProject(projectId, {
+    status: 'IN_PROGRESS',
+    workOrderAccepted: true,
+    workOrderAcceptedAt: now,
+    contractorId: actor.id,
+    contractorName: actor.organization || actor.name,
+    governanceDocuments: docs,
+  });
+
+  // Activate first milestone if planned
+  if (updatedProject && updatedProject.milestones && updatedProject.milestones.length > 0) {
+    const firstM = updatedProject.milestones[0];
+    if (firstM && firstM.status === 'PLANNED') {
+      dbStore.updateMilestone(projectId, firstM.id, {
+        status: 'IN_PROGRESS',
+      });
+    }
+  }
+
+  dbStore.updateRequest(project.requestId, { status: 'IN_PROGRESS' });
+
+  dbStore.logAudit({
+    actor: actor.name,
+    actorRole: actor.role,
+    actorId: actor.id,
+    actorName: actor.name,
+    action: 'WORK_ORDER_ACCEPTED',
+    entityType: 'PROJECT',
+    entityId: projectId,
+    projectId,
+    previousState: project.status,
+    newState: 'IN_PROGRESS',
+    amount: project.funding?.contracted || project.recommendedAmount,
+    reason: acceptanceNotes || 'Contractor formally accepted Work Order terms and commenced execution mobilization.',
+    details: `Contractor ${actor.organization || actor.name} (${actor.id}) formally accepted Work Order ${project.workOrderNumber || project.workOrderId || 'NTP'}. Civil execution unlocked.`,
+    correlationId: projectId,
+  });
+
+  dbStore.createNotification({
+    targetRole: 'OFFICIAL',
+    targetUserId: '',
+    title: `Work Order Accepted: ${project.name}`,
+    message: `Contractor ${actor.organization || actor.name} accepted Work Order ${project.workOrderNumber || ''} and mobilized on-site execution.`,
+    entityId: project.id,
+    entityType: 'PROJECT',
+    projectId: project.id,
+    workTokenId: project.workTokenId,
+  });
+
+  res.json({
+    success: true,
+    data: dbStore.getProjectById(projectId),
+  });
+});
+
 apiRouter.post('/projects/start', (req: Request, res: Response) => {
   const actor = requireAuth(req, res);
   if (!actor) return;
@@ -5019,18 +5114,25 @@ apiRouter.post('/projects/assign', (req: Request, res: Response) => {
   }
 
   const { projectId, contractorId, contractedAmount } = req.body;
+  if (!contractorId) {
+    return res.status(400).json({ success: false, error: { code: 'CONTRACTOR_REQUIRED', message: 'Contractor ID is required.' } });
+  }
+
   const project = dbStore.getProjectById(projectId);
   if (!project) {
     return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found.' } });
   }
 
   const contractor = dbStore.getUserById(contractorId);
-  const contractorName = contractor?.organization || contractor?.name || 'Enlisted Contractor Agency';
+  if (!contractor || contractor.role !== 'CONTRACTOR' || contractor.status === 'inactive') {
+    return res.status(400).json({ success: false, error: { code: 'INVALID_CONTRACTOR', message: 'The specified contractor does not exist or is inactive.' } });
+  }
+  const contractorName = contractor.organization || contractor.name;
   const amount = Number(contractedAmount) || project.funding.sanctioned;
 
   const updatedProject = dbStore.updateProject(projectId, {
     status: 'WAITING_FOR_FINANCIAL_SANCTION',
-    recommendedContractorId: contractorId || 'contractor-01',
+    recommendedContractorId: contractor.id,
     recommendedContractorName: contractorName,
     recommendedAmount: amount,
     recommendedBy: actor.name,

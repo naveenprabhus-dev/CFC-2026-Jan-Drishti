@@ -111,7 +111,11 @@ export const ContractorWorkspace: React.FC<ContractorWorkspaceProps> = ({
 
   const handleStartExecution = async (projectId: string) => {
     try {
-      await apiClient.startProjectExecution(projectId);
+      try {
+        await apiClient.acceptWorkOrder(projectId, 'Contractor formally accepted Work Order terms and commenced execution mobilization.');
+      } catch {
+        await apiClient.startProjectExecution(projectId);
+      }
       await fetchProjects();
     } catch (err) {
       console.error('Failed to start execution:', err);
@@ -167,6 +171,10 @@ export const ContractorWorkspace: React.FC<ContractorWorkspaceProps> = ({
         return 'bg-purple-100 text-purple-800 border-purple-300';
       case 'DELAYED':
         return 'bg-rose-100 text-rose-800 border-rose-300';
+      case 'CONTRACTOR_EXECUTION_AUTHORIZED':
+        return 'bg-emerald-100 text-emerald-900 border-emerald-300';
+      case 'WORK_ORDER_ISSUED':
+        return 'bg-teal-100 text-teal-900 border-teal-300';
       case 'CONTRACTOR_ASSIGNED':
       default:
         return 'bg-amber-100 text-amber-800 border-amber-300';
@@ -618,13 +626,13 @@ export const ContractorWorkspace: React.FC<ContractorWorkspaceProps> = ({
 
                       {/* Action Area for Project Card */}
                       <div className="flex flex-col sm:flex-row lg:flex-col items-stretch lg:items-end gap-2 shrink-0">
-                        {proj.status === 'CONTRACTOR_ASSIGNED' && (
+                        {(proj.status === 'CONTRACTOR_EXECUTION_AUTHORIZED' || proj.status === 'WORK_ORDER_ISSUED' || proj.status === 'CONTRACTOR_ASSIGNED') && (
                           <button
                             onClick={() => handleStartExecution(proj.id)}
                             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                           >
                             <Hammer className="w-3.5 h-3.5" />
-                            <span>Start Execution</span>
+                            <span>Accept Work Order & Start Execution</span>
                           </button>
                         )}
 

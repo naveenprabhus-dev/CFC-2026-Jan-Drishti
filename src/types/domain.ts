@@ -340,6 +340,8 @@ export interface Project {
   workOrderDate?: string;
   workOrderIssuedBy?: string;
   workOrderNumber?: string;
+  workOrderAccepted?: boolean;
+  workOrderAcceptedAt?: string;
   assignmentEffectiveAt?: string;
   funding: FundingLedger;
   milestones: Milestone[];

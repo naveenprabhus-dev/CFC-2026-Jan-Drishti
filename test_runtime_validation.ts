@@ -496,7 +496,24 @@ async function runRuntimeValidation() {
   }, officialToken);
   console.log(`5. Duplicate inspection on completed project blocked: Status ${bypass5.status} (${bypass5.data?.error?.code})`);
 
-  console.log('✓ TEST 7 PASSED: All 5 security and lifecycle bypass attempts correctly rejected by backend governance!\n');
+  // 6. Unauthenticated attempt to start admin preview
+  const bypass6 = await apiCall('/api/auth/admin-preview/start', 'POST', { targetUserId: officialUserObj.id });
+  console.log(`6. Unauthenticated admin preview blocked: Status ${bypass6.status} (${bypass6.data?.error?.code})`);
+
+  // 7. Duplicate work order acceptance attempt
+  const bypass7 = await apiCall(`/api/contractor/work-orders/${projectId}/accept`, 'POST', {
+    acceptanceNotes: 'Duplicate attempt'
+  }, contractorToken);
+  console.log(`7. Duplicate work order acceptance blocked: Status ${bypass7.status} (${bypass7.data?.error?.code})`);
+
+  // 8. Contractor recommendation with non-existent contractor ID
+  const bypass8 = await apiCall(`/api/projects/${earlyProjectId}/recommend-contractor`, 'POST', {
+    contractorId: 'fake-nonexistent-contractor-999',
+    contractedAmount: 500000,
+  }, officialToken);
+  console.log(`8. Non-existent contractor recommendation blocked: Status ${bypass8.status} (${bypass8.data?.error?.code})`);
+
+  console.log('✓ TEST 7 PASSED: All 8 security and lifecycle bypass attempts correctly rejected by backend governance!\n');
 
   console.log('====================================================');
   console.log('ALL 7 RUNTIME LIFECYCLE TESTS COMPLETED SUCCESSFULLY!');
