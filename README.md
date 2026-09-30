@@ -790,8 +790,7 @@ JanDrishti/
 ├── data/
 │   └── cfc_store.json
 │
-├── docs/
-│   └── JanDrishti_Hackathon_Deck.pdf
+|── JanDrishti_Hackathon_Deck.pdf
 │
 ├── public/
 │
