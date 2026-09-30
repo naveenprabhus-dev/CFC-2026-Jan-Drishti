@@ -852,7 +852,7 @@ The application will be available at the local development URL provided by Vite.
 
 The complete project pitch deck is available inside the repository:
 
-**[JanDrishti Hackathon Pitch Deck](docs/JanDrishti_Hackathon_Deck.pdf)**
+**[JanDrishti Hackathon Pitch Deck](JanDrishti_Hackathon_Deck.pdf)**
 
 The deck covers:
 
@@ -914,7 +914,7 @@ Final Completion
 Public Transparency
 ```
 
-🎥 **Watch the Demo:** `https://drive.google.com/file/d/1thBAGVZvG15OeFolgLVeqbqVRt862GN5/view?usp=drive_link`
+🎥 **Watch the Demo:** [`Demo Video`](https://drive.google.com/file/d/1thBAGVZvG15OeFolgLVeqbqVRt862GN5/view?usp=drive_link)
 
 ---
 
