@@ -32,6 +32,23 @@ export interface ProjectCompletionEligibilityResult {
 }
 
 /**
+ * Valid execution and verification lifecycle states where physical inspections can be conducted.
+ */
+export const VALID_INSPECTION_LIFECYCLE_STATES = [
+  'IN_PROGRESS',
+  'VERIFICATION_REQUIRED',
+  'DELAYED',
+  'READY_FOR_COMPLETION',
+  'CONTRACTOR_EXECUTION_AUTHORIZED',
+  'EXECUTION_ENABLED',
+] as const;
+
+export function isProjectInInspectionStage(project?: Project | null): boolean {
+  if (!project) return false;
+  return (VALID_INSPECTION_LIFECYCLE_STATES as readonly string[]).includes(project.status);
+}
+
+/**
  * Evaluates whether a specific milestone satisfies all governance prerequisites
  * required to be eligible for human Official verification.
  */
@@ -43,6 +60,13 @@ export function evaluateMilestonePrerequisites(
   observations: CommunityObservation[] = []
 ): MilestonePrerequisitesResult {
   const missingPrerequisites: string[] = [];
+
+  // 0. Project Lifecycle Stage Check: Project must be in active execution or verification state
+  if (!isProjectInInspectionStage(project)) {
+    missingPrerequisites.push(
+      `Project is at early stage "${project.status}". Milestone verification is only available after funding authorization and active execution.`
+    );
+  }
 
   // 1. Milestone Sequence Rule: Previous milestone in sequence must be VERIFIED
   const previousMilestones = (project.milestones || []).filter(
@@ -143,6 +167,10 @@ export function evaluateProjectCompletionEligibility(
 ): ProjectCompletionEligibilityResult {
   const missingConditions: string[] = [];
   const milestones = project.milestones || [];
+
+  if (milestones.length === 0) {
+    missingConditions.push('Project has no defined civil milestones to certify.');
+  }
   
   const unverifiedMilestones = milestones
     .filter((m) => m.status !== 'VERIFIED')
@@ -157,23 +185,19 @@ export function evaluateProjectCompletionEligibility(
     );
   }
 
-  if (project.status === 'DELAYED') {
+  if (project.status === 'DELAYED' || Boolean(project.reworkRequiredMessage)) {
     missingConditions.push('Project has an active unresolved rework mandate.');
   }
 
-  // Ensure project is in active or verification stage
+  // Strict completion states: Only projects that have reached completion readiness
   const validCompletionStates = [
-    'IN_PROGRESS',
-    'VERIFICATION_REQUIRED',
     'READY_FOR_COMPLETION',
-    'CONTRACTOR_ASSIGNED',
-    'SANCTIONED',
-    'FINANCIAL_SANCTIONED',
-    'EXECUTION_ENABLED',
+    'VERIFICATION_REQUIRED',
+    'IN_PROGRESS',
   ];
 
   if (!validCompletionStates.includes(project.status) && project.status !== 'COMPLETED') {
-    missingConditions.push(`Project in status "${project.status}" cannot be completed.`);
+    missingConditions.push(`Project in status "${project.status}" has not completed physical execution.`);
   }
 
   const isReadyForCompletion = missingConditions.length === 0;

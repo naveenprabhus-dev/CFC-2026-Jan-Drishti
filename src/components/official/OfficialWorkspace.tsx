@@ -4,6 +4,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { apiClient } from '../../services/api';
 import {
   CitizenRequest,
+  IssueCluster,
   WorkToken,
   Project,
   ContractorEvidence,
@@ -22,6 +23,7 @@ import { OfficialInspectionsView } from './OfficialInspectionsView';
 import { OfficialSLAView } from './OfficialSLAView';
 import { OfficialAuditView } from './OfficialAuditView';
 import { TriageModal } from './TriageModal';
+import { ClusterTriageModal } from './ClusterTriageModal';
 import { CreateProjectModal } from './CreateProjectModal';
 import { AssignContractorModal } from './AssignContractorModal';
 import { InspectionModal } from './InspectionModal';
@@ -74,6 +76,7 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
 
   // Core Data
   const [requests, setRequests] = useState<CitizenRequest[]>([]);
+  const [clusters, setClusters] = useState<IssueCluster[]>([]);
   const [tokens, setTokens] = useState<WorkToken[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [contractors, setContractors] = useState<UserSession[]>([]);
@@ -81,6 +84,7 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
 
   // Modals state
   const [selectedTriageRequest, setSelectedTriageRequest] = useState<CitizenRequest | null>(null);
+  const [selectedClusterForTriage, setSelectedClusterForTriage] = useState<IssueCluster | null>(null);
   const [selectedTokenForProject, setSelectedTokenForProject] = useState<WorkToken | null>(null);
   const [selectedProjectForContractor, setSelectedProjectForContractor] = useState<Project | null>(null);
   const [selectedProjectForInspection, setSelectedProjectForInspection] = useState<Project | null>(null);
@@ -113,13 +117,15 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [reqData, tokenData, projectData, allUsers] = await Promise.all([
+      const [reqData, clusterData, tokenData, projectData, allUsers] = await Promise.all([
         apiClient.getOfficialRequests(),
+        apiClient.getOfficialClusters(),
         apiClient.getWorkTokens(),
         apiClient.getProjects(),
         apiClient.getUsers(),
       ]);
       setRequests(reqData);
+      setClusters(clusterData);
       setTokens(tokenData);
       setProjects(projectData);
       setContractors(allUsers.filter((u) => u.role === 'CONTRACTOR'));
@@ -235,6 +241,11 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
 
   const handleTriageComplete = (_updatedRequest: CitizenRequest) => {
     setSelectedTriageRequest(null);
+    fetchData();
+  };
+
+  const handleClusterTriageComplete = (_updatedCluster: IssueCluster, _workToken?: WorkToken) => {
+    setSelectedClusterForTriage(null);
     fetchData();
   };
 
@@ -498,8 +509,10 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
             {requestSubView === 'QUEUE' ? (
               <OfficialRequestQueue
                 requests={requests}
+                clusters={clusters}
                 onOpenRequestDetail={(req) => setActiveRequestDetailObj(req)}
                 onOpenTriage={(req) => setSelectedTriageRequest(req)}
+                onOpenClusterTriage={(cluster) => setSelectedClusterForTriage(cluster)}
               />
             ) : (
               <OfficialAITriageView
@@ -632,6 +645,7 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
             {financeSubView === 'CONTRACTORS' && (
               <OfficialContractorsView
                 projects={projects}
+                contractors={contractors}
                 onOpenProjectDetail={(pId) => setActiveProjectDetailId(pId)}
               />
             )}
@@ -776,11 +790,30 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
       </main>
 
       {/* Modals */}
+      {selectedClusterForTriage && (
+        <ClusterTriageModal
+          cluster={selectedClusterForTriage}
+          onClose={() => setSelectedClusterForTriage(null)}
+          onSuccess={(updatedCluster, workToken) => {
+            setSelectedClusterForTriage(null);
+            fetchData();
+          }}
+        />
+      )}
+
       {selectedTriageRequest && (
         <TriageModal
           request={selectedTriageRequest}
           onClose={() => setSelectedTriageRequest(null)}
           onSuccess={handleTriageComplete}
+        />
+      )}
+
+      {selectedClusterForTriage && (
+        <ClusterTriageModal
+          cluster={selectedClusterForTriage}
+          onClose={() => setSelectedClusterForTriage(null)}
+          onSuccess={handleClusterTriageComplete}
         />
       )}
 

@@ -72,6 +72,80 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({
     setLanguage(selectedLang);
   };
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputVal = e.target.value;
+
+    if (
+      !inputVal ||
+      inputVal.trim() === '' ||
+      inputVal === '+' ||
+      inputVal === '+9' ||
+      inputVal === '+91' ||
+      inputVal === '+91 '
+    ) {
+      setPhone('');
+      return;
+    }
+
+    const rawDigits = inputVal.replace(/\D/g, '');
+
+    if (rawDigits.length === 0) {
+      setPhone('');
+      return;
+    }
+
+    let mobileDigits = rawDigits;
+
+    if (rawDigits.startsWith('91') && (inputVal.includes('+91') || rawDigits.length > 10)) {
+      mobileDigits = rawDigits.slice(2);
+    }
+
+    mobileDigits = mobileDigits.slice(0, 10);
+
+    if (mobileDigits.length === 0) {
+      setPhone('');
+      return;
+    }
+
+    let formatted = '+91 ' + mobileDigits;
+    if (mobileDigits.length > 5) {
+      formatted = `+91 ${mobileDigits.slice(0, 5)} ${mobileDigits.slice(5)}`;
+    }
+
+    setPhone(formatted);
+  };
+
+  const handlePhoneFocus = () => {
+    if (!phone) {
+      setPhone('+91 ');
+    }
+  };
+
+  const handlePhoneBlur = () => {
+    if (phone === '+91 ' || phone === '+91' || phone === '+') {
+      setPhone('');
+    }
+  };
+
+  const handleAadhaarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputVal = e.target.value;
+    const rawDigits = inputVal.replace(/\D/g, '').slice(0, 12);
+
+    if (rawDigits.length === 0) {
+      setAadhaarNumber('');
+      return;
+    }
+
+    let formatted = rawDigits;
+    if (rawDigits.length > 8) {
+      formatted = `${rawDigits.slice(0, 4)}-${rawDigits.slice(4, 8)}-${rawDigits.slice(8)}`;
+    } else if (rawDigits.length > 4) {
+      formatted = `${rawDigits.slice(0, 4)}-${rawDigits.slice(4)}`;
+    }
+
+    setAadhaarNumber(formatted);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) {
@@ -80,7 +154,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({
     }
 
     if (selectedRole === 'CITIZEN') {
-      const cleanAadhaar = aadhaarNumber.replace(/\s+/g, '');
+      const cleanAadhaar = aadhaarNumber.replace(/[\s-]+/g, '');
       if (cleanAadhaar && (!/^\d{12}$/.test(cleanAadhaar))) {
         setErrorMsg('Please enter a valid 12-digit Aadhaar number for identity verification.');
         return;
@@ -102,7 +176,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({
         designation: designation.trim() || (selectedRole === 'CITIZEN' ? 'Registered Citizen' : undefined),
         password: password.trim() || undefined,
         primaryLanguage,
-        aadhaarNumber: aadhaarNumber.replace(/\s+/g, '') || undefined,
+        aadhaarNumber: aadhaarNumber.replace(/[\s-]+/g, '') || undefined,
         homeState,
         homeDistrict,
         homeULB,
@@ -252,9 +326,11 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({
                   <input
                     type="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={handlePhoneChange}
+                    onFocus={handlePhoneFocus}
+                    onBlur={handlePhoneBlur}
                     placeholder="+91 98401 23456"
-                    className="w-full text-xs pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-500 transition"
+                    className="w-full text-xs pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-500 transition font-mono"
                   />
                 </div>
               </div>
@@ -458,8 +534,8 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({
                     <input
                       type="text"
                       value={aadhaarNumber}
-                      onChange={(e) => setAadhaarNumber(e.target.value)}
-                      placeholder="XXXX-XXXX-1234"
+                      onChange={handleAadhaarChange}
+                      placeholder="2134-2145-9191"
                       maxLength={14}
                       className="w-full pl-8 pr-2 p-2 text-xs rounded-xl border border-slate-200 bg-white font-mono"
                     />

@@ -40,7 +40,19 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const t = (key: string, params?: Record<string, string | number>): string => {
     const langDict = TRANSLATIONS[language] || TRANSLATIONS['en'];
-    let text = langDict[key] || TRANSLATIONS['en'][key] || key;
+    let text = langDict?.[key];
+
+    if (!text && TRANSLATIONS['en']?.[key]) {
+      if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
+        console.warn(`[MISSING_TRANSLATION] locale=${language} key=${key}`);
+      }
+      text = TRANSLATIONS['en'][key];
+    } else if (!text) {
+      if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
+        console.warn(`[MISSING_TRANSLATION] locale=${language} key=${key}`);
+      }
+      text = key;
+    }
 
     if (params) {
       Object.entries(params).forEach(([paramKey, value]) => {

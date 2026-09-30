@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Project, GovernanceDocument, GovernanceDocType, GovernanceDocStatus } from '../../types/domain';
-import { apiClient } from '../../services/api';
+import { apiClient, getSessionToken } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import {
   FileText,
@@ -109,24 +109,19 @@ export const DocumentController: React.FC<DocumentControllerProps> = ({
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      // Trigger native download
-      const jsonStr = JSON.stringify(doc, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
+      // Trigger real PDF download from backend
+      const token = getSessionToken();
+      const downloadUrl = `/api/projects/${project.id}/documents/${doc.id}/download?token=${encodeURIComponent(token)}`;
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `JanDrishti_${doc.refNumber}.json`;
+      link.href = downloadUrl;
+      link.download = `JanDrishti_${doc.docType.toLowerCase()}_${doc.refNumber}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
 
-      // Call server side to update status to SIGNATURE_PENDING or SIGNED_UPLOAD_PENDING
-      // By simulating this update in the UI/Store, we advance workflow status to 'SIGNATURE_PENDING' or 'SIGNED_UPLOAD_PENDING'
-      // Many government systems automatically flag a document as download pending signature
-      setSuccessMsg('Document file downloaded. System moved status to SIGNATURE_PENDING.');
+      setSuccessMsg('PDF Document downloaded successfully. Please sign, seal, and upload to complete this milestone.');
     } catch (err: any) {
-      setErrorMsg('Failed to process document download simulation.');
+      setErrorMsg('Failed to process document download.');
     }
   };
 

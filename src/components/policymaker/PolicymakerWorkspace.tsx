@@ -17,6 +17,7 @@ import {
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { DigitalThreadBadge } from '../common/DigitalThreadBadge';
 import { ProjectDetailModal } from '../project/ProjectDetailModal';
+import { GovernanceDocumentConsole } from '../common/GovernanceDocumentConsole';
 import {
   TrendingUp,
   Building2,
@@ -55,6 +56,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   XCircle,
+  X,
   Award,
   ChevronDown,
   AlertCircle,
@@ -74,11 +76,14 @@ export const PolicymakerWorkspace: React.FC<PolicymakerWorkspaceProps> = ({
   onOpenProject,
   onOpenToken,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, notifications, markRead } = useAuth();
   const [intelData, setIntelData] = useState<PolicymakerIntelligenceData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<MainTabType>('decision_inbox');
   const [approvedAmount, setApprovedAmount] = useState<number>(0);
+
+  const [showAuthPopup, setShowAuthPopup] = useState(false);
+  const [popupNotif, setPopupNotif] = useState<any | null>(null);
   
   // Sub-tabs states
   const [activeIntelSubTab, setActiveIntelSubTab] = useState<IntelligenceSubTabType>('regional');
@@ -101,6 +106,16 @@ export const PolicymakerWorkspace: React.FC<PolicymakerWorkspaceProps> = ({
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const [authReason, setAuthReason] = useState('');
   const [authStatusMessage, setAuthStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [expandedSections, setExpandedSections] = useState({
+    context: false,
+    need: false,
+    procurement: false,
+    sanction: false,
+    audit: false,
+  });
+
+  const [level1Tab, setLevel1Tab] = useState<'summary' | 'financial' | 'audit'>('summary');
 
   const fetchAuthDetail = async (id: string) => {
     try {
@@ -228,6 +243,26 @@ export const PolicymakerWorkspace: React.FC<PolicymakerWorkspaceProps> = ({
     }
   }, [selectedProposedId]);
 
+  useEffect(() => {
+    if (selectedAuthId) {
+      fetchAuthDetail(selectedAuthId);
+    } else {
+      setAuthProjectDetail(null);
+    }
+  }, [selectedAuthId]);
+
+  useEffect(() => {
+    if (currentUser?.role === 'POLICYMAKER' && notifications && notifications.length > 0) {
+      const pendingNotif = notifications.find(
+        (n) => !n.read && n.type === 'WAITING_FOR_FUNDING_AUTHORIZATION'
+      );
+      if (pendingNotif) {
+        setPopupNotif(pendingNotif);
+        setShowAuthPopup(true);
+      }
+    }
+  }, [notifications, currentUser]);
+
   const handleProcessSanction = async (decision: 'APPROVE' | 'RETURN' | 'REJECT') => {
     if (!selectedProposedId) return;
     if ((decision === 'RETURN' || decision === 'REJECT') && !proposalReason.trim()) {
@@ -309,6 +344,8 @@ export const PolicymakerWorkspace: React.FC<PolicymakerWorkspaceProps> = ({
   // Filter proposed projects for the inbox
   const proposedProjects = projects.filter((p) => p.status === 'PROPOSED');
   const returnedProjects = projects.filter((p) => p.status === 'RETURNED');
+  const authQueueProjects = projects.filter((p) => p.status === 'WAITING_FOR_FUNDING_AUTHORIZATION' || p.status === 'FINANCIAL_SANCTIONED');
+  const authPendingCount = authQueueProjects.length;
   const highPriorityProposals = proposedProjects.filter((p) => {
     // Treat as priority review if sanctioned cost is > 25 Lakhs or is a critical category
     const cost = p.funding.sanctioned || p.funding.allocated || 0;
@@ -399,7 +436,7 @@ export const PolicymakerWorkspace: React.FC<PolicymakerWorkspaceProps> = ({
           {[
             { id: 'decision_inbox', label: 'Decision Inbox', count: proposedProjects.length + returnedProjects.length, icon: Inbox },
             { id: 'intelligence', label: 'Development Intelligence', count: '5 Modules', icon: Compass },
-            { id: 'funding', label: 'Funding & Sanction', count: `₹${(fundingAggregate.expenditure / 100000).toFixed(0)}L`, icon: IndianRupee },
+            { id: 'authorization', label: 'Funding Authorization', count: authPendingCount, icon: Scale },
             { id: 'portfolio', label: 'Development Portfolio', count: projects.length, icon: Folder },
             { id: 'history', label: 'Decision History', icon: History },
           ].map((tab) => {
@@ -1328,121 +1365,424 @@ export const PolicymakerWorkspace: React.FC<PolicymakerWorkspaceProps> = ({
       )}
 
       {/* ==================================================
-          3. FUNDING & SANCTION WORKSPACE
+          3. FUNDING AUTHORIZATION WORKSPACE
           ================================================== */}
-      {activeTab === 'funding' && (
+      {activeTab === 'authorization' && (
         <div className="space-y-6">
-          <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-            <Info className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-            <div className="text-xs space-y-1">
-              <h4 className="font-bold text-amber-950 text-sm">
-                PFMS Fiscal Ledger Integration
-              </h4>
-              <p className="text-amber-900 leading-relaxed">
-                Budget figures, sanction ratios, and expenditure absorption are aggregated from the simulated <strong>Public Finance Management System (PFMS)</strong> ledger. Real-time disbursement is strictly gated by digital verification certificates.
-              </p>
-            </div>
-          </div>
+          {!selectedAuthId ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Queue List */}
+              <div className="lg:col-span-2 space-y-4">
+                <div className="bg-purple-50/50 p-4 rounded-xl border border-purple-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Scale className="w-4 h-4 text-purple-700" />
+                    <span className="text-xs font-bold text-slate-900">Treasury & Funding Authorization Queue</span>
+                  </div>
+                  <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
+                    {authPendingCount} Actionable Files
+                  </span>
+                </div>
 
-          {/* Grand Totals Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Allocated Outlay</span>
-              <p className="text-lg font-mono font-black text-slate-900 mt-1">₹{(fundingAggregate.allocated / 100000).toFixed(1)} Lakhs</p>
-              <span className="text-[10px] text-slate-500">Cabinet Approved Head</span>
-            </div>
+                {authQueueProjects.length === 0 ? (
+                  <div className="bg-white rounded-xl border border-slate-200/80 p-12 text-center space-y-3">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto animate-bounce" />
+                    <h3 className="text-sm font-bold text-slate-800">Authorization Queue Clean</h3>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto">
+                      All financially sanctioned infrastructure projects have been reviewed and treasury release orders signed. No pending works are awaiting your authorization.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {authQueueProjects.map((p) => {
+                      const cost = p.funding.sanctioned || p.funding.allocated || 0;
+                      // Find sanction doc
+                      const sanctionDoc = (p.governanceDocuments || []).find(d => d.docType === 'FINANCIAL_SANCTION_ORDER');
+                      return (
+                        <div
+                          key={p.id}
+                          className="bg-white rounded-xl border-2 border-purple-100 p-5 shadow-xs hover:border-purple-300 hover:shadow-sm transition cursor-pointer"
+                          onClick={() => setSelectedAuthId(p.id)}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-[10px] font-bold text-purple-900 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                                  {p.id}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded">
+                                  {p.department}
+                                </span>
+                                {sanctionDoc && (
+                                  <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                    Sanction Ref: {sanctionDoc.refNumber}
+                                  </span>
+                                )}
+                              </div>
+                              <h4 className="text-sm font-extrabold text-slate-900 pt-1">{p.name}</h4>
+                              <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span>{p.district}, {p.state} • Recommended Contractor: <strong className="text-slate-700 font-semibold">{p.recommendedContractorName || p.contractorName}</strong></span>
+                              </p>
+                            </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-              <span className="text-[10px] font-bold text-purple-700 uppercase tracking-wider block">Sanctioned</span>
-              <p className="text-lg font-mono font-black text-purple-950 mt-1">₹{(fundingAggregate.sanctioned / 100000).toFixed(1)} Lakhs</p>
-              <span className="text-[10px] text-purple-700 font-bold">Sanction: {fundingAggregate.sanctionRatio.toFixed(1)}%</span>
-            </div>
+                            <div className="text-left sm:text-right shrink-0">
+                              <span className="text-[10px] text-slate-400 block uppercase font-bold">Sanctioned Cost</span>
+                              <span className="text-sm font-mono font-black text-purple-950">
+                                ₹{(cost / 100000).toFixed(2)} Lakhs
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedAuthId(p.id);
+                                }}
+                                className="block mt-2 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
+                              >
+                                Review & Authorize
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-              <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">Contracted</span>
-              <p className="text-lg font-mono font-black text-indigo-950 mt-1">₹{(fundingAggregate.contracted / 100000).toFixed(1)} Lakhs</p>
-              <span className="text-[10px] text-indigo-700 font-bold">Work Orders Awarded</span>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-              <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Expenditure</span>
-              <p className="text-lg font-mono font-black text-emerald-950 mt-1">₹{(fundingAggregate.expenditure / 100000).toFixed(1)} Lakhs</p>
-              <span className="text-[10px] text-emerald-700 font-bold">Absorption: {fundingAggregate.absorptionRate.toFixed(1)}%</span>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs col-span-2 md:col-span-1">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Remaining Buffer</span>
-              <p className="text-lg font-mono font-black text-slate-800 mt-1">₹{(fundingAggregate.remaining / 100000).toFixed(1)} Lakhs</p>
-              <span className="text-[10px] text-slate-500">Unexpended Reserve</span>
-            </div>
-          </div>
-
-          {/* Delegation Policy Panel */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-              <h4 className="text-sm font-bold text-slate-900">Capital Scheme Breakdown & Absorption Velocity</h4>
+              {/* Right Column: Queue Sidebar Context & Stats */}
               <div className="space-y-4">
-                {fundingAggregate.schemeBreakdown.map((sb, idx) => (
-                  <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-200/70 space-y-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <h5 className="font-bold text-slate-900 text-sm">{sb.scheme}</h5>
-                        <span className="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                          Budget Head: {sb.budgetHead}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-mono font-bold text-purple-900">
-                          ₹{(sb.expenditure / 100000).toFixed(1)}L / ₹{(sb.sanctioned / 100000).toFixed(1)}L
-                        </span>
-                        <span className="block text-[10px] text-slate-500">Absorption: {sb.absorptionRate.toFixed(1)}%</span>
-                      </div>
-                    </div>
+                <div className="bg-white rounded-xl border border-slate-200/80 p-5 space-y-4">
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Treasury Release Policy</h4>
+                  <div className="text-xs space-y-2.5 text-slate-600 leading-relaxed">
+                    <p>
+                      In compliance with PFMS capital guidelines, all projects reaching <strong className="text-purple-950">FINANCIAL_SANCTIONED</strong> state are queued for policymaker authorization.
+                    </p>
+                    <p className="bg-purple-50 p-2.5 rounded-lg border border-purple-100 text-purple-950 font-medium text-[11px]">
+                      Your signature verifies that the budget allocation is aligned with targeted constituency schemes, and authorizes direct treasury release on progress milestone certificates.
+                    </p>
+                  </div>
+                </div>
 
-                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-purple-600 h-2 rounded-full"
-                        style={{ width: `${Math.min(100, sb.absorptionRate)}%` }}
-                      />
+                {/* Delegation profile */}
+                <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5 uppercase">
+                    <ShieldCheck className="w-4 h-4 text-purple-700" />
+                    <span>Delegated Treasury Limits</span>
+                  </h4>
+                  <div className="space-y-3 text-xs leading-relaxed text-slate-600">
+                    <div className="p-3 bg-purple-50 rounded-lg text-purple-950">
+                      <span className="block text-[9px] font-bold uppercase text-purple-700">Constituency Cap</span>
+                      <p className="text-sm font-black">
+                        ₹{((currentUser?.financialThreshold || 10000000) / 100000).toFixed(1)} Lakhs
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase text-slate-400 block">Department Scope</span>
+                      <p className="text-slate-800 font-bold">{currentUser?.department || 'Ministry of Infrastructure Planning'}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Owner Rules panel */}
-            <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <ShieldCheck className="w-5 h-5 text-purple-700" />
-                <span>Your Active Delegation Rules</span>
-              </h4>
-              <div className="space-y-3 text-xs leading-relaxed text-slate-600">
-                <div className="p-3 bg-purple-50 rounded-lg text-purple-950 space-y-1">
-                  <span className="block text-[10px] font-bold uppercase text-purple-700">Financial Delegation Limit</span>
-                  <p className="text-sm font-black">
-                    ₹{((currentUser?.financialThreshold || 5000000) / 100000).toFixed(1)} Lakhs
-                  </p>
-                  <p className="text-[10px] text-purple-700 leading-tight">
-                    Budget proposals above this amount will reject during approval with "insufficient authority (403)".
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">Department Scope Locking</span>
-                  <p className="text-slate-800 font-medium">
-                    {currentUser?.department || 'General Statewide Planning & Resource Commission'}
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">Regional Jurisdiction Locking</span>
-                  <p className="text-slate-800 font-medium">
-                    {currentUser?.homeDistrict || currentUser?.authorizedRegion || 'Statewide Circle - Comprehensive Bounds'}
-                  </p>
                 </div>
               </div>
             </div>
-          </div>
+          ) : (
+            /* Review & Document Generation Panel */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    setSelectedAuthId(null);
+                    setAuthProjectDetail(null);
+                    setAuthStatusMessage(null);
+                  }}
+                  className="inline-flex items-center gap-1 text-xs text-purple-700 font-bold hover:underline mb-2 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Back to Authorization Queue</span>
+                </button>
+                <DigitalThreadBadge projectId={authProjectDetail?.id} workTokenId={authProjectDetail?.workTokenId} requestId={authProjectDetail?.requestId} />
+              </div>
+
+              {!authProjectDetail ? (
+                <div className="bg-white p-12 text-center rounded-xl border border-slate-200">
+                  <div className="w-8 h-8 border-3 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                  <p className="text-xs text-slate-500">Querying full project decision context...</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* LEVEL 1 — PROJECT / GOVERNANCE REVIEW (Tabbed Horizontal Layout) */}
+                  <div className="bg-slate-50 rounded-3xl border border-slate-200 p-6 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">Level 1 Review</span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <h3 className="font-extrabold text-sm text-slate-900">Project: <span className="font-mono text-purple-700">{authProjectDetail.id}</span></h3>
+                          <span className="text-slate-300">|</span>
+                          <span className="font-bold text-xs text-slate-600">Work Token: <span className="font-mono">{authProjectDetail.workTokenId || 'N/A'}</span></span>
+                          <span className="text-slate-300">|</span>
+                          <span className="font-bold text-xs text-slate-600">Status: <span className="uppercase text-purple-700">{authProjectDetail.status}</span></span>
+                        </div>
+                      </div>
+
+                      {/* Tab buttons */}
+                      <div className="flex items-center gap-1 p-1 bg-slate-200/60 rounded-xl max-w-max">
+                        <button
+                          type="button"
+                          onClick={() => setLevel1Tab('summary')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                            level1Tab === 'summary' ? 'bg-white text-purple-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Project Summary
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLevel1Tab('financial')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                            level1Tab === 'financial' ? 'bg-white text-purple-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Financial
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLevel1Tab('audit')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                            level1Tab === 'audit' ? 'bg-white text-purple-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Audit History
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs">
+                      {level1Tab === 'summary' && (
+                        <div className="space-y-4 text-xs">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold">Project Title</span>
+                              <strong className="text-slate-800 text-xs font-bold block mt-0.5">{authProjectDetail.name}</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold">Executing Department</span>
+                              <span className="text-slate-800 block mt-0.5">{authProjectDetail.department}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold">Circle Geography</span>
+                              <span className="text-slate-800 block mt-0.5">{authProjectDetail.district}, {authProjectDetail.state}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold">Citizen Grievance reference</span>
+                              <span className="font-mono text-slate-800 block mt-0.5">{authProjectDetail.requestId || 'N/A'}</span>
+                            </div>
+                          </div>
+
+                          {authProjectDetail.citizenRequest && (
+                            <div className="border-t border-slate-100 pt-3 space-y-2">
+                              <div>
+                                <span className="text-slate-400 block text-[10px] uppercase font-bold mb-1">Citizen Need</span>
+                                <p className="text-slate-600 leading-relaxed font-serif bg-slate-50/50 p-3 rounded-xl border border-slate-200 italic">
+                                  "{authProjectDetail.citizenRequest.description}"
+                                </p>
+                              </div>
+                              {authProjectDetail.citizenRequest.aiAnalysis && (
+                                <div className="bg-purple-50/50 p-3 rounded-xl border border-purple-100/50 text-[11px] text-purple-900 italic">
+                                  <strong>AI Problem Intelligence Summary:</strong> "{authProjectDetail.citizenRequest.aiAnalysis.summary}"
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {level1Tab === 'financial' && (
+                        <div className="space-y-4 text-xs">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold">Sanctioned Budget Outlay</span>
+                              <strong className="text-emerald-700 font-black text-sm font-mono block mt-0.5">
+                                ₹{authProjectDetail.funding.sanctioned.toLocaleString('en-IN')}
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold">Sanction Order Number</span>
+                              <strong className="text-slate-800 font-mono block mt-0.5">
+                                {authProjectDetail.sanctionNumber || 'N/A'}
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold">Selected Contractor Agency</span>
+                              <strong className="text-slate-800 font-bold block mt-0.5">
+                                {authProjectDetail.recommendedContractorName || authProjectDetail.contractorName || 'N/A'}
+                              </strong>
+                            </div>
+                          </div>
+
+                          {(() => {
+                            const fsDoc = (authProjectDetail.governanceDocuments || []).find(d => d.docType === 'FINANCIAL_SANCTION_ORDER');
+                            if (fsDoc) {
+                              return (
+                                <div className="border-t border-slate-100 pt-3 flex flex-wrap justify-between items-center gap-2">
+                                  <span className="text-slate-600 font-medium">Authoritative Financial Sanction Document:</span>
+                                  {fsDoc.fileUrl ? (
+                                    <a
+                                      href={fsDoc.fileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-purple-700 hover:text-purple-900 underline font-extrabold flex items-center gap-1"
+                                    >
+                                      <FileText className="w-3.5 h-3.5 shrink-0" />
+                                      <span>View Signed Sanction Order</span>
+                                    </a>
+                                  ) : (
+                                    <span className="text-amber-800 font-bold italic">Awaiting secure signed order...</span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+
+                          {authProjectDetail.quotes && authProjectDetail.quotes.length > 0 && (
+                            <div className="border-t border-slate-100 pt-3">
+                              <span className="text-slate-400 block text-[10px] uppercase font-bold mb-2">Quotation Registry</span>
+                              <ul className="space-y-1 mt-1 font-medium">
+                                {(authProjectDetail.quotes || []).map(q => (
+                                  <li key={q.id} className="flex justify-between items-center text-[11px] bg-slate-50 p-2 rounded-xl border border-slate-200">
+                                    <span>{q.contractorName} {q.officialSelection?.selected && <span className="text-amber-700 text-[9px] font-bold bg-amber-50 px-1 rounded border border-amber-200 ml-1">Recommended</span>}</span>
+                                    <span className="font-mono text-slate-700 font-bold">₹{q.quotedAmount.toLocaleString('en-IN')}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {level1Tab === 'audit' && (
+                        <div className="space-y-4 text-xs">
+                          <div>
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold mb-2">Immutable Blockchain Audit Trail</span>
+                            <div className="border border-slate-200 rounded-xl overflow-hidden bg-white max-h-48 overflow-y-auto divide-y divide-slate-100">
+                              <div className="p-2.5 bg-slate-50 text-slate-500 font-bold grid grid-cols-3">
+                                <span>Activity / Phase</span>
+                                <span>Governor Role</span>
+                                <span>Timestamp</span>
+                              </div>
+                              <div className="p-2.5 grid grid-cols-3 font-medium">
+                                <span className="font-semibold text-slate-900">Project Proposal Created</span>
+                                <span className="text-slate-600">Official</span>
+                                <span className="text-slate-400 font-mono text-[10px]">{new Date(authProjectDetail.createdAt).toLocaleString()}</span>
+                              </div>
+                              {authProjectDetail.sanctionedAt && (
+                                <div className="p-2.5 grid grid-cols-3 font-medium">
+                                  <span className="font-semibold text-slate-900">Financial Sanction Approved</span>
+                                  <span className="text-slate-600">Sanctioning Authority</span>
+                                  <span className="text-slate-400 font-mono text-[10px]">{new Date(authProjectDetail.sanctionedAt).toLocaleString()}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* LEVEL 2 — DOCUMENT WORKSPACE (Large, Prominent, Highly Visible) */}
+                  <div className="space-y-6">
+                    <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 border border-slate-800 shadow-xl space-y-6">
+                      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                        <div>
+                          <span className="text-[10px] font-mono uppercase font-bold text-purple-400 tracking-wider">
+                            Authoritative Release Panel
+                          </span>
+                          <h3 className="text-base font-black text-white">Funding & Treasury Authorization Controls</h3>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Provide remarks and finalize the treasury release decision.
+                          </p>
+                        </div>
+                        <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 text-right">
+                          <span className="text-[9px] block text-purple-300 font-bold uppercase">Authorized Budget</span>
+                          <span className="font-mono font-black text-emerald-400 text-sm">₹{authProjectDetail.funding.sanctioned.toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+
+                      {authStatusMessage && (
+                        <div className={`p-4 rounded-xl border text-xs flex gap-2 font-semibold ${
+                          authStatusMessage.type === 'success' ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' : 'bg-rose-950/60 border-rose-800 text-rose-300'
+                        }`}>
+                          <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${authStatusMessage.type === 'success' ? 'text-emerald-400' : 'text-rose-400'}`} />
+                          <span>{authStatusMessage.text}</span>
+                        </div>
+                      )}
+
+                      <div className="space-y-2 text-xs">
+                        <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">Review Remarks / Treasury release Instructions</label>
+                        <textarea
+                          value={authReason}
+                          onChange={(e) => setAuthReason(e.target.value)}
+                          placeholder="Provide specific conditions for the treasury release, target milestones, and compliance expectations..."
+                          className="w-full h-24 p-3 border border-slate-800 rounded-xl text-xs bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-sans"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-3">
+                        <button
+                          onClick={() => handleAuthorizeFunding('REJECT')}
+                          disabled={isSubmittingAuth}
+                          className="px-5 py-2.5 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
+                        >
+                          Reject Release
+                        </button>
+                        <button
+                          onClick={() => handleAuthorizeFunding('RETURN')}
+                          disabled={isSubmittingAuth}
+                          className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs border border-slate-700"
+                        >
+                          Return for Rev.
+                        </button>
+                        <button
+                          onClick={() => handleAuthorizeFunding('AUTHORIZE')}
+                          disabled={isSubmittingAuth}
+                          className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-purple-500/10"
+                        >
+                          {isSubmittingAuth ? 'Processing...' : 'Authorize Release'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Integrated Governance Document workspace */}
+                    {(() => {
+                      const authDoc = (authProjectDetail.governanceDocuments || []).find(d => d.docType === 'FUNDING_AUTHORIZATION_ORDER');
+                      if (authDoc) {
+                        return (
+                          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs space-y-4">
+                            <div className="p-5 bg-slate-50 border-b border-slate-200 font-extrabold text-xs text-slate-900 uppercase tracking-wider">
+                              Government Document Workspace
+                            </div>
+                            <div className="p-2">
+                              <GovernanceDocumentConsole
+                                project={authProjectDetail}
+                                docType="FUNDING_AUTHORIZATION_ORDER"
+                                onDocumentActionSuccess={async (updatedProj) => {
+                                  setAuthProjectDetail(updatedProj);
+                                  await fetchIntelligence();
+                                  setAuthStatusMessage({
+                                    type: 'success',
+                                    text: 'Signed Funding Authorization uploaded successfully! Project moved to WAITING_FOR_WORK_ORDER.'
+                                  });
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

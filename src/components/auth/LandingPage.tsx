@@ -84,7 +84,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-amber-400 font-bold tracking-wider uppercase text-[11px]">
               <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>{t('govtUtilityPortal') || 'CFC-2026 • Public Development Intelligence & Transparency Platform'}</span>
+              <span>{t('govtUtilityPortal') || 'JanDrishti • Public Development Intelligence & Transparency Platform'}</span>
             </div>
           </div>
 
@@ -179,7 +179,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <div>
               <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-extrabold uppercase tracking-widest mb-1">
-                <span>CFC-2026 • HACKATHON PROTOTYPE</span>
+                <span>JanDrishti • CIVIC DEVELOPMENT INTELLIGENCE</span>
               </div>
               <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight uppercase">
                 {t('appTitle') || 'PUBLIC DEVELOPMENT INTELLIGENCE & TRANSPARENCY PLATFORM'}
@@ -224,7 +224,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="relative max-w-5xl mx-auto text-center space-y-6 z-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold tracking-wide">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>National Standard Digital Public Infrastructure for Public Development</span>
+            <span>{t('heroBadge') || 'National Standard Digital Public Infrastructure for Public Development'}</span>
           </div>
 
           <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white leading-tight max-w-4xl mx-auto">
@@ -241,14 +241,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div>
                 <h3 className="text-lg font-black text-white flex items-center gap-2">
                   <Layers className="w-5 h-5 text-amber-400" />
-                  <span>{t('accessServicesTitle') || 'Access CFC-2026 Services'}</span>
+                  <span>{t('accessServicesTitle') || 'Access JanDrishti Services'}</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {t('accessServicesSub') || 'Select your role or action to enter the public infrastructure platform'}
                 </p>
               </div>
               <span className="text-[11px] font-bold px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                Authorized Gateway
+                {t('authorizedGatewayBadge') || 'Authorized Gateway'}
               </span>
             </div>
 
@@ -279,8 +279,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <FileText className="w-5 h-5 text-amber-400" />
                   </div>
                   <div className="text-left">
-                    <div className="text-sm font-extrabold">{t('register') || 'Register as Citizen'}</div>
-                    <div className="text-[11px] font-normal text-slate-300">New Account Setup</div>
+                    <div className="text-sm font-extrabold">{t('registerAsCitizen') || 'Register as Citizen'}</div>
+                    <div className="text-[11px] font-normal text-slate-300">{t('newAccountSetup') || 'New Account Setup'}</div>
                   </div>
                 </div>
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition text-slate-400" />
@@ -290,7 +290,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Secondary Role Entry Buttons Grid */}
             <div className="pt-2">
               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                Stakeholder & Authority Portals:
+                {t('stakeholderPortalsHeader') || 'Stakeholder & Authority Portals:'}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 {/* Official */}
@@ -339,7 +339,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="max-w-4xl mx-auto bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200 text-center space-y-4">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-100 text-sky-800 text-xs font-bold">
             <Search className="w-3.5 h-3.5 text-sky-600" />
-            <span>Open Public Intelligence Lookup</span>
+            <span>{t('openIntelligenceLookup') || 'Open Public Intelligence Lookup'}</span>
           </div>
 
           <h3 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
@@ -370,7 +370,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Transparency Search Helper */}
           <div className="pt-2 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
-            <span className="font-semibold text-slate-600">Search by Sanction Number, Work Token, or Location</span>
+            <span className="font-semibold text-slate-600">{t('searchBySanctionTokenLoc') || 'Search by Sanction Number, Work Token, or Location'}</span>
           </div>
         </div>
       </section>
@@ -379,10 +379,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 w-full">
         <div className="text-center max-w-3xl mx-auto mb-12">
           <div className="inline-block text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full border border-emerald-300 mb-3">
-            Public Governance Architecture
+            {t('publicGovArchitecture') || 'Public Governance Architecture'}
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            {t('whatPlatformDoesTitle') || 'How CFC-2026 Digital Public Infrastructure Works'}
+            {t('whatPlatformDoesTitle') || 'How JanDrishti Digital Public Infrastructure Works'}
           </h2>
           <p className="text-sm text-slate-600 mt-2">
             {t('whatPlatformDoesSub') || 'A 5-stage deterministic pipeline connecting citizen grievances with verified public works'}
@@ -405,7 +405,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
             </div>
             <div className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-1 rounded-md border border-sky-100 mt-2">
-              Citizen Input
+              {t('step1Badge') || 'Citizen Input'}
             </div>
           </div>
 
@@ -423,7 +423,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
             </div>
             <div className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 mt-2">
-              AI Triage
+              {t('step2Badge') || 'AI Triage'}
             </div>
           </div>
 
@@ -441,7 +441,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
             </div>
             <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-100 mt-2">
-              Government Sanction
+              {t('step3Badge') || 'Government Sanction'}
             </div>
           </div>
 
@@ -459,7 +459,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
             </div>
             <div className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-md border border-amber-100 mt-2">
-              Evidence Audit
+              {t('step4Badge') || 'Evidence Audit'}
             </div>
           </div>
 
@@ -477,7 +477,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
             </div>
             <div className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-1 rounded-md border border-teal-100 mt-2">
-              Open Audit Thread
+              {t('step5Badge') || 'Open Audit Thread'}
             </div>
           </div>
         </div>
@@ -488,7 +488,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="max-w-7xl mx-auto space-y-12">
           <div className="text-center max-w-3xl mx-auto">
             <span className="text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
-              Public Sector Impact & Capabilities
+              {t('publicImpactCapabilities') || 'Public Sector Impact & Capabilities'}
             </span>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-3 tracking-tight">
               {t('useCaseTitle') || 'Civic Governance Architecture & Use Cases'}
@@ -610,13 +610,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-white font-extrabold text-sm uppercase">
               <Shield className="w-4 h-4 text-amber-400" />
-              <span>CFC-2026 PLATFORM</span>
+              <span>JANDRISHTI PLATFORM</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
               {t('footerNotice') || 'An open digital public infrastructure connecting citizen needs with authorized government action, milestone verification, and public expenditure transparency.'}
             </p>
             <div className="text-[11px] text-emerald-400 font-mono font-bold">
-              National Infrastructure Standard Compliant
+              {t('nationalStdCompliant') || 'National Infrastructure Standard Compliant'}
             </div>
           </div>
 
@@ -643,7 +643,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </li>
               <li>
                 <button onClick={() => onOpenLogin('ADMIN')} className="hover:text-amber-300 transition cursor-pointer">
-                  Administrator Portal
+                  {t('administratorPortal') || 'Administrator Portal'}
                 </button>
               </li>
             </ul>
@@ -655,27 +655,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {t('policiesTitle') || 'Governance Charters'}
             </div>
             <ul className="space-y-1.5 text-xs">
-              <li className="hover:text-slate-200 cursor-pointer">{t('privacyGuaranteeTitle') || 'Citizen Non-PII Privacy Charter'}</li>
-              <li className="hover:text-slate-200 cursor-pointer">{t('accessibilityFont') || 'Accessibility & Inclusivity Policy'}</li>
-              <li className="hover:text-slate-200 cursor-pointer">Public Audit Trail Standards</li>
-              <li className="hover:text-slate-200 cursor-pointer">Work Token Security Protocol</li>
+              <li className="hover:text-slate-200 cursor-pointer">{t('nonPiiPrivacyCharter') || 'Citizen Non-PII Privacy Charter'}</li>
+              <li className="hover:text-slate-200 cursor-pointer">{t('accessibilityPolicy') || 'Accessibility & Inclusivity Policy'}</li>
+              <li className="hover:text-slate-200 cursor-pointer">{t('publicAuditStandards') || 'Public Audit Trail Standards'}</li>
+              <li className="hover:text-slate-200 cursor-pointer">{t('workTokenSecurityProtocol') || 'Work Token Security Protocol'}</li>
             </ul>
           </div>
 
           {/* Col 4: Disclaimer & Prototype Notice */}
           <div className="space-y-2">
             <div className="text-white font-bold text-xs uppercase tracking-wider mb-2">
-              Prototype Disclaimer
+              {t('prototypeDisclaimerTitle') || 'Prototype Disclaimer'}
             </div>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              {t('disclaimerNotice') || 'This platform is developed as part of the CFC-2026 Civic Infrastructure Hackathon. It demonstrates deterministic digital public infrastructure for municipal and state governance.'}
+              {t('disclaimerNotice') || 'This platform demonstrates deterministic digital public infrastructure for municipal and state governance under JanDrishti.'}
             </p>
           </div>
         </div>
 
         <div className="max-w-7xl mx-auto border-t border-slate-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-slate-500">
           <div>
-            &copy; 2026 CFC-2026 Public Development Intelligence System. All Rights Reserved.
+            &copy; 2026 JanDrishti Public Development Intelligence System. All Rights Reserved.
           </div>
           <div className="flex items-center gap-4">
             <span>Powered by Gemini AI Triage</span>

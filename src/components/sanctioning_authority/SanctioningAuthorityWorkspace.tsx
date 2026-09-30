@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Project, AuditEvent } from '../../types/domain';
-import { apiClient } from '../../services/api';
+import { apiClient, getSessionToken } from '../../services/api';
+import { GovernanceDocumentConsole } from '../common/GovernanceDocumentConsole';
 import {
   isAuthorityEligibleForProject,
   resolveProjectCircleId,
@@ -32,6 +33,8 @@ import {
   TrendingUp,
   ChevronRight,
   FileCheck2,
+  Download,
+  Upload,
 } from 'lucide-react';
 
 interface SanctioningAuthorityWorkspaceProps {
@@ -53,6 +56,9 @@ export const SanctioningAuthorityWorkspace: React.FC<SanctioningAuthorityWorkspa
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+
+  const [viewingOfficialDoc, setViewingOfficialDoc] = useState<any>(null);
+  const [level1Tab, setLevel1Tab] = useState<'summary' | 'financial' | 'audit'>('summary');
 
   // Decision Modal States
   const [showApproveModal, setShowApproveModal] = useState<boolean>(false);
@@ -145,6 +151,12 @@ export const SanctioningAuthorityWorkspace: React.FC<SanctioningAuthorityWorkspa
     .reduce((sum, p) => sum + (p.funding?.sanctioned || 0), 0);
 
   const userThreshold = currentUser?.financialThreshold || 10000000; // Default ₹1 Crore ceiling
+
+  const officialRecDoc = selectedProject
+    ? (selectedProject.governanceDocuments || [])
+        .filter((d) => d.docType === 'CONTRACTOR_RECOMMENDATION')
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+    : null;
 
   const handleSelectReviewProject = (p: Project) => {
     setSelectedProject(p);
@@ -588,68 +600,177 @@ export const SanctioningAuthorityWorkspace: React.FC<SanctioningAuthorityWorkspa
                   </div>
                 </div>
 
-                {/* 12-STAGE COMPLETE DECISION CASE */}
-                <div className="space-y-6">
-                  <div className="flex items-center gap-2 text-xs font-extrabold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-2">
-                    <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                    <span>Complete Multi-Stakeholder Decision Case</span>
+                {/* LEVEL 1 — PROJECT / GOVERNANCE REVIEW (Horizontal Tabs) */}
+                <div className="bg-slate-50 rounded-3xl border border-slate-200 p-6 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider font-mono">Level 1 Review</span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <h3 className="font-extrabold text-sm text-slate-900">Project ID: <span className="font-mono text-indigo-700">{selectedProject.id}</span></h3>
+                        <span className="text-slate-300">|</span>
+                        <span className="font-bold text-xs text-slate-600">Work Token: <span className="font-mono">{selectedProject.workTokenId || 'N/A'}</span></span>
+                        <span className="text-slate-300">|</span>
+                        <span className="font-bold text-xs text-slate-600 font-mono">Reference ID: <span className="uppercase text-indigo-700">{selectedProject.requestId || 'N/A'}</span></span>
+                      </div>
+                    </div>
+
+                    {/* Tab controls */}
+                    <div className="flex items-center gap-1 p-1 bg-slate-200/60 rounded-xl max-w-max">
+                      <button
+                        type="button"
+                        onClick={() => setLevel1Tab('summary')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                          level1Tab === 'summary' ? 'bg-white text-indigo-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Project Summary
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLevel1Tab('financial')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                          level1Tab === 'financial' ? 'bg-white text-indigo-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Financial & Tenders
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLevel1Tab('audit')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                          level1Tab === 'audit' ? 'bg-white text-indigo-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Audit History
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* 1. Citizen Need */}
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                        <UserCheck className="w-4 h-4 text-sky-600" />
-                        <span>1. Citizen Need & Grievance Thread</span>
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs">
+                    {level1Tab === 'summary' && (
+                      <div className="space-y-4 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold">Project Description</span>
+                            <strong className="text-slate-800 text-xs font-bold block mt-0.5">{selectedProject.name}</strong>
+                            <p className="text-slate-600 mt-1 leading-relaxed">{selectedProject.description}</p>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold">Executing Department</span>
+                            <span className="text-slate-800 block mt-0.5">{selectedProject.department}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold">Circle Geography</span>
+                            <span className="text-slate-800 block mt-0.5">{selectedProject.district}, {selectedProject.state || 'Tamil Nadu'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold">Scope of Work</span>
+                            <span className="text-slate-800 block mt-0.5 font-serif italic">"{selectedProject.scopeOfWork}"</span>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-100 pt-3">
+                          <span className="text-slate-400 block text-[10px] uppercase font-bold mb-1">Citizen Need & Grievance Context</span>
+                          <p className="text-slate-600 leading-relaxed font-serif bg-slate-50/50 p-3 rounded-xl border border-slate-200 italic">
+                            "{selectedProject.description}"
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-xs font-extrabold text-slate-900">{selectedProject.name}</p>
-                      <p className="text-xs text-slate-600 line-clamp-3">{selectedProject.description}</p>
-                      <div className="text-[10px] text-slate-400">
-                        Request ID: <span className="font-mono font-bold text-slate-700">{selectedProject.requestId}</span>
+                    )}
+
+                    {level1Tab === 'financial' && (
+                      <div className="space-y-5 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold">Proposed Sanction Outlay</span>
+                            <strong className="text-emerald-700 font-black text-sm font-mono block mt-0.5">
+                              {formatLakhs(selectedProject.recommendedAmount || selectedProject.funding?.contracted || selectedProject.funding?.sanctioned)}
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold">Recommended Contractor Agency</span>
+                            <strong className="text-indigo-950 font-bold block mt-0.5">
+                              {selectedProject.recommendedContractorName || selectedProject.contractorName || 'N/A'}
+                            </strong>
+                          </div>
+                        </div>
+
+                  {/* OFFICIAL RECOMMENDATION DOCUMENT SECTION */}
+                  <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-indigo-600" />
+                        <h4 className="font-black text-sm text-slate-900">
+                          OFFICIAL RECOMMENDATION DOCUMENT
+                        </h4>
                       </div>
+                      <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border ${
+                        officialRecDoc?.status === 'SIGNED_DOCUMENT_UPLOADED'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                      }`}>
+                        {officialRecDoc?.status === 'SIGNED_DOCUMENT_UPLOADED' ? 'SIGNED & UPLOADED (VERIFIED)' : 'UNPUBLISHED / MISSING SIGNATURE'}
+                      </span>
                     </div>
 
-                    {/* 2. Incident Location & Jurisdiction */}
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                        <MapPin className="w-4 h-4 text-rose-600" />
-                        <span>2. Incident Location & Circle Jurisdiction</span>
-                      </div>
-                      <p className="text-xs font-bold text-slate-900">{selectedProject.district}, {selectedProject.state || 'Tamil Nadu'}</p>
-                      <p className="text-xs text-slate-600">{selectedProject.scopeOfWork}</p>
-                      <div className="text-[10px] text-slate-500">
-                        Department: <span className="font-bold text-slate-800">{selectedProject.department}</span>
-                      </div>
-                    </div>
+                    {officialRecDoc && officialRecDoc.status === 'SIGNED_DOCUMENT_UPLOADED' ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                        <div className="space-y-2 font-medium text-slate-700">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Document Name:</span>
+                            <span className="text-slate-900 font-extrabold">Contractor Recommendation & Procurement Report</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Document Number:</span>
+                            <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-[11px] font-bold text-slate-800">{officialRecDoc.refNumber}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Generated On:</span>
+                            <span className="text-slate-900">{new Date(officialRecDoc.createdAt).toLocaleString('en-IN')}</span>
+                          </div>
+                        </div>
 
-                    {/* 3. Official Review & Work Token */}
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                        <Award className="w-4 h-4 text-emerald-600" />
-                        <span>3. Government Official Triage & Work Token</span>
-                      </div>
-                      <p className="text-xs text-slate-800 font-bold">Issued Work Token: <span className="font-mono text-purple-700">{selectedProject.workTokenId}</span></p>
-                      <p className="text-xs text-slate-600">
-                        Official Notes: {selectedProject.officialReviewNotes || 'Triage completed. Issue verified and converted into public development project plan.'}
-                      </p>
-                    </div>
+                        <div className="space-y-2 font-medium text-slate-700">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Signed & Uploaded:</span>
+                            <span className="text-slate-900">{officialRecDoc.uploadedAt ? new Date(officialRecDoc.uploadedAt).toLocaleString('en-IN') : 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Uploaded By:</span>
+                            <span className="text-slate-900">{officialRecDoc.uploadedBy || 'Executive Engineer'} ({officialRecDoc.uploadedByRole || 'OFFICIAL'})</span>
+                          </div>
 
-                    {/* 4. Official Contractor Recommendation */}
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                        <HardHat className="w-4 h-4 text-amber-600" />
-                        <span>4. Official Contractor Recommendation</span>
+                          <div className="pt-2 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setViewingOfficialDoc(officialRecDoc)}
+                              className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-500" />
+                              <span>View Document</span>
+                            </button>
+                            <a
+                              href={`/api/projects/${selectedProject.id}/documents/${officialRecDoc.id}/download?token=${encodeURIComponent(getSessionToken())}`}
+                              download={`JanDrishti_Contractor_Recommendation_${officialRecDoc.refNumber}.pdf`}
+                              className="px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs transition cursor-pointer flex items-center gap-1.5 text-center"
+                            >
+                              <Download className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Download PDF</span>
+                            </a>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-xs font-bold text-indigo-900">
-                        Agency: {selectedProject.recommendedContractorName || selectedProject.contractorName || 'Selected Enlisted Contractor'}
-                      </p>
-                      <p className="text-xs text-slate-600">
-                        Recommended Quote: <span className="font-mono font-bold text-slate-900">{formatLakhs(selectedProject.recommendedAmount || selectedProject.funding?.contracted)}</span>
-                      </p>
-                      <p className="text-[11px] text-slate-500 italic">
-                        "{selectedProject.recommendationReason || 'Recommended based on AI quote evaluation and competitive financial bid.'}"
-                      </p>
-                    </div>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 space-y-2">
+                        <div className="flex items-center gap-2 font-bold">
+                          <AlertCircle className="w-4 h-4 text-amber-600" />
+                          <span>Audit Lock: Recommendation Document Unsigned</span>
+                        </div>
+                        <p className="leading-relaxed text-[11px] text-slate-700">
+                          The authorized Government Official has not uploaded the signed and sealed Contractor Recommendation & Procurement Report yet. To ensure legal integrity and maintain full administrative audit logs, the Sanctioning Authority cannot approve financial outlays without inspecting the verified document.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Tender Bids & AI Quote Analysis Table */}
@@ -698,64 +819,116 @@ export const SanctioningAuthorityWorkspace: React.FC<SanctioningAuthorityWorkspa
                       </div>
                     </div>
                   )}
+                </div>
+              )}
 
-                  {/* DECISION CONTROL ACTION BAR */}
-                  <div className="bg-indigo-950 text-white rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl border border-indigo-800">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <span className="text-[10px] font-mono uppercase font-bold text-indigo-300 tracking-wider">
-                          Authoritative Human Approval Panel
-                        </span>
-                        <h3 className="text-lg font-black text-white">Financial Sanction Decision Controls</h3>
-                        <p className="text-xs text-indigo-200 mt-0.5">
-                          Exercising delegated treasury authority. AI cannot sanction funds.
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="text-[10px] text-slate-300 block font-mono">Delegated Limit Check</span>
-                        <span className="text-xs font-bold text-emerald-400 bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-500/30">
-                          ✓ Within ₹1.00 Crore Limit
-                        </span>
-                      </div>
+              {level1Tab === 'audit' && (
+                <div className="space-y-4 text-xs">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold mb-2">Project Governance Audit Trail</span>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden bg-white max-h-60 overflow-y-auto divide-y divide-slate-100">
+                    <div className="p-3 bg-slate-50 text-slate-500 font-bold grid grid-cols-3 font-mono text-[10px]">
+                      <span>ACTIVITY / PHASE</span>
+                      <span>GOVERNOR ROLE</span>
+                      <span>TIMESTAMP</span>
                     </div>
-
-                    <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
-                      <button
-                        onClick={() => setShowRejectModal(true)}
-                        className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-rose-700 hover:bg-rose-600 text-white font-bold text-xs shadow-md transition cursor-pointer"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        <span>REJECT FINANCIAL SANCTION</span>
-                      </button>
-
-                      <button
-                        onClick={() => setShowReturnModal(true)}
-                        className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-sky-700 hover:bg-sky-600 text-white font-bold text-xs shadow-md transition cursor-pointer"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        <span>RETURN FOR REVISION</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          const initialAmt = selectedProject.recommendedAmount || selectedProject.funding?.contracted || selectedProject.funding?.sanctioned || selectedProject.funding?.allocated || 0;
-                          setApprovedAmountInput(String(initialAmt));
-                          setShowApproveModal(true);
-                        }}
-                        className="flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 transition transform active:scale-98 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-5 h-5" />
-                        <span>APPROVE FINANCIAL SANCTION</span>
-                      </button>
-                    </div>
+                    {auditEvents.filter(e => e.projectId === selectedProject.id).length === 0 ? (
+                      <div className="p-4 text-center text-slate-400">No audit logs recorded for this project yet.</div>
+                    ) : (
+                      auditEvents.filter(e => e.projectId === selectedProject.id).map((event, idx) => (
+                        <div key={idx} className="p-3 grid grid-cols-3 font-medium text-slate-700">
+                          <span className="font-semibold text-slate-900">{event.action.replace(/_/g, ' ')}</span>
+                          <span className="text-slate-600">{event.actorRole} ({event.actor})</span>
+                          <span className="text-slate-400 font-mono text-[10px]">{new Date(event.timestamp).toLocaleString('en-IN')}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+
+          {/* DECISION CONTROL ACTION BAR WITH DOCUMENT WORKFLOW LINKAGE */}
+          {selectedProject.status === 'PENDING_FINANCIAL_SANCTION' || selectedProject.status === 'FINANCIAL_SANCTIONED' ? (
+                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                      <div className="bg-indigo-50/80 border border-indigo-200 p-5 rounded-3xl text-indigo-950 text-xs space-y-2">
+                        <span className="font-extrabold text-indigo-900 flex items-center gap-1.5 text-sm uppercase">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                          <span>Financial Sanction Decision: APPROVED & LOCKED</span>
+                        </span>
+                        <p className="text-slate-700 leading-relaxed font-medium">
+                          You have formally approved this case. Now download the secure generated Financial Sanction Order PDF, physically sign and seal it, and upload the scanned copy below. The project status will only transition to <strong className="text-emerald-800">FINANCIAL_SANCTIONED</strong> after successful document commitment.
+                        </p>
+                      </div>
+                      
+                      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-2">
+                        <GovernanceDocumentConsole
+                          project={selectedProject}
+                          docType="FINANCIAL_SANCTION_ORDER"
+                          onDocumentActionSuccess={(updatedProj) => {
+                            setSelectedProject(updatedProj);
+                            fetchData();
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-indigo-950 text-white rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl border border-indigo-800">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                          <span className="text-[10px] font-mono uppercase font-bold text-indigo-300 tracking-wider">
+                            Authoritative Human Approval Panel
+                          </span>
+                          <h3 className="text-lg font-black text-white">Financial Sanction Decision Controls</h3>
+                          <p className="text-xs text-indigo-200 mt-0.5">
+                            Exercising delegated treasury authority. AI cannot sanction funds.
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-300 block font-mono">Delegated Limit Check</span>
+                          <span className="text-xs font-bold text-emerald-400 bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-500/30">
+                            ✓ Within {formatLakhs(userThreshold)} Limit
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+                        <button
+                          onClick={() => setShowRejectModal(true)}
+                          className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-rose-700 hover:bg-rose-600 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          <span>REJECT FINANCIAL SANCTION</span>
+                        </button>
+
+                        <button
+                          onClick={() => setShowReturnModal(true)}
+                          className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-sky-700 hover:bg-sky-600 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          <span>RETURN FOR REVISION</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const initialAmt = selectedProject.recommendedAmount || selectedProject.funding?.contracted || selectedProject.funding?.sanctioned || selectedProject.funding?.allocated || 0;
+                            setApprovedAmountInput(String(initialAmt));
+                            setShowApproveModal(true);
+                          }}
+                          className="flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm shadow-xl shadow-emerald-500/20 transition transform active:scale-98 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-5 h-5" />
+                          <span>APPROVE FINANCIAL SANCTION</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
       {/* ================= TAB 3: SANCTION HISTORY ================= */}
       {activeTab === 'HISTORY' && (
@@ -1044,6 +1217,132 @@ export const SanctioningAuthorityWorkspace: React.FC<SanctioningAuthorityWorkspa
               >
                 <XCircle className="w-4 h-4" />
                 <span>{isSubmittingDecision ? 'Rejecting...' : 'Confirm Rejection'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW OFFICIAL DOCUMENT MODAL */}
+      {viewingOfficialDoc && selectedProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-5 flex items-center justify-between shrink-0">
+              <span className="font-extrabold text-sm uppercase tracking-wider text-slate-200">
+                Document Preview
+              </span>
+              <button
+                onClick={() => setViewingOfficialDoc(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Document Body */}
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-100 flex justify-center">
+              <div className="bg-white border-2 border-slate-300 w-full max-w-xl p-8 shadow-md relative font-serif text-slate-900 rounded-sm space-y-6 select-text text-xs leading-relaxed">
+                <div className="flex flex-col items-center text-center space-y-2 border-b-2 border-slate-900 pb-4">
+                  <div className="w-10 h-10 rounded-full border border-slate-900 flex items-center justify-center font-bold text-xs bg-slate-50">
+                    GOVT
+                  </div>
+                  <h1 className="text-[10px] font-black tracking-widest uppercase font-sans">Government of Tamil Nadu</h1>
+                  <h2 className="text-[9px] font-bold tracking-wider uppercase text-slate-500 font-sans">{selectedProject.department}</h2>
+                  <h3 className="text-xs font-extrabold tracking-wide uppercase pt-1 font-sans text-slate-950 underline decoration-slate-400">
+                    Contractor Recommendation & Procurement Report
+                  </h3>
+                  <div className="flex justify-between w-full text-[9px] font-mono text-slate-500 pt-2">
+                    <span>REF: {viewingOfficialDoc.refNumber}</span>
+                    <span>DATE: {new Date(viewingOfficialDoc.createdAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 font-sans text-[11px]">
+                  <h4 className="font-bold border-b border-slate-300 pb-1 uppercase tracking-wider text-slate-900 text-[10px]">I. Context & Scope</h4>
+                  <div className="grid grid-cols-2 gap-y-1.5 gap-x-4">
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase tracking-wider">Project ID</span>
+                      <span className="font-mono text-slate-800">{selectedProject.id}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase tracking-wider">Work Token ID</span>
+                      <span className="font-mono text-slate-800">{selectedProject.workTokenId}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase tracking-wider">Project Title</span>
+                      <span className="text-slate-800 font-bold">{selectedProject.name}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase tracking-wider">Operational Geography</span>
+                      <span className="text-slate-800">{selectedProject.district}, {selectedProject.state || 'Tamil Nadu'}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-slate-400 block text-[9px] font-bold uppercase tracking-wider">Approved Scope of Work</span>
+                      <p className="text-slate-800 font-serif italic bg-slate-50 p-2 rounded border border-slate-100 mt-1">"{selectedProject.scopeOfWork}"</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 font-sans text-[11px]">
+                  <h4 className="font-bold border-b border-slate-300 pb-1 uppercase tracking-wider text-slate-900 text-[10px]">II. Selection & Recommendation Details</h4>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Recommended Contractor</span>
+                        <strong className="text-slate-900">{viewingOfficialDoc.contractorName}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Proposed Value</span>
+                        <strong className="text-emerald-800">{formatCurrency(viewingOfficialDoc.amount)}</strong>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Official Selection Rationale</span>
+                      <p className="text-slate-800 font-serif leading-relaxed italic bg-slate-50 p-2.5 rounded mt-1">
+                        "{viewingOfficialDoc.generatedContent?.justification || 'Highly cost-effective bid satisfying all PWD IRC quality layer criteria.'}"
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-300 pt-4 flex justify-between items-end font-sans text-[11px]">
+                  <div>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Office Seal</span>
+                    <div className="w-16 h-16 rounded-full border border-dashed border-slate-400 flex items-center justify-center text-[8px] text-slate-400 font-mono text-center select-none uppercase">
+                      PWD Seal
+                    </div>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Authorized Signature</span>
+                    <div className="font-serif italic text-sm font-bold text-slate-900 pr-1 select-none">
+                      {viewingOfficialDoc.uploadedBy ? `Signed / ${viewingOfficialDoc.uploadedBy}` : 'Unsigned Draft'}
+                    </div>
+                    <div className="leading-normal text-slate-600 text-[10px]">
+                      <strong>{viewingOfficialDoc.createdBy}</strong>
+                      <span className="block text-[9px] text-slate-400 font-mono">{viewingOfficialDoc.createdByRole}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 pt-3 flex justify-between items-center text-[8px] font-mono text-slate-400">
+                  <div className="flex items-center gap-1 text-emerald-700 font-bold">
+                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                    <span>JANDRISHTI DIGITAL LEDGER VERIFIED</span>
+                  </div>
+                  <span>REF: {viewingOfficialDoc.id}</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setViewingOfficialDoc(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 text-white font-bold text-xs transition cursor-pointer"
+              >
+                Close Preview
               </button>
             </div>
           </div>

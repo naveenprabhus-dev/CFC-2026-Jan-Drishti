@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { dbStore, DEFAULT_ADMIN, sanitizeUser, verifyPassword, hashPassword } from '../db/store';
+import { buildPdfStream } from '../utils/pdfGenerator';
 import {
   analyzeCitizenComplaint,
   verifyContractorEvidence,
@@ -13,6 +14,7 @@ import {
 import {
   evaluateMilestonePrerequisites,
   evaluateProjectCompletionEligibility,
+  isProjectInInspectionStage,
 } from '../../src/utils/milestoneGovernance';
 import {
   isContractorEligibleForProject,
@@ -20,6 +22,8 @@ import {
   resolveProjectCircleId,
   resolveEntityCircleIds,
   findEligibleSanctioningAuthority,
+  normalizeDistrictName,
+  normalizeLanguageCode,
 } from '../../src/utils/jurisdictionGovernance';
 import {
   CitizenRequest,
@@ -45,9 +49,13 @@ export const apiRouter = Router();
 // Helper to get active user from verified server-issued session token
 export function getActorSession(req: Request): UserSession | null {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.startsWith('Bearer ')
+  let token = authHeader && authHeader.startsWith('Bearer ')
     ? authHeader.slice(7)
     : (req.headers['x-session-token'] as string);
+
+  if (!token && req.query.token) {
+    token = req.query.token as string;
+  }
 
   if (!token) {
     return null;
@@ -153,10 +161,10 @@ function filterByJurisdiction(items: any[], actor?: UserSession | null, location
   const actorCircles = resolveEntityCircleIds(actor);
 
   // Get actor geography
-  const homeDistrict = (actor.homeDistrict || '').trim().toLowerCase();
+  const homeDistrict = normalizeDistrictName(actor.homeDistrict || '').trim().toLowerCase();
   const homeState = (actor.homeState || '').trim().toLowerCase();
   const jurisdiction = (actor.jurisdiction || '').trim().toLowerCase();
-  const authorizedRegion = (actor.authorizedRegion || '').trim().toLowerCase();
+  const authorizedRegion = normalizeDistrictName(actor.authorizedRegion || '').trim().toLowerCase();
 
   // Match list of geography bounds
   const distTargets = [homeDistrict, authorizedRegion].filter(Boolean);
@@ -175,20 +183,27 @@ function filterByJurisdiction(items: any[], actor?: UserSession | null, location
       return true;
     }
 
-    let itemDistrict = '';
+    // Unresolved or unassigned jurisdiction requests stay visible in queue for human triage
+    if (itemCircle === 'UNRESOLVED-JURISDICTION') {
+      return true;
+    }
+
+    let rawDistrict = '';
     let itemState = '';
 
     if (locationField === 'location') {
-      itemDistrict = (item.incidentDistrict || item.location?.district || '').trim().toLowerCase();
+      rawDistrict = item.incidentDistrict || item.location?.district || '';
       itemState = (item.incidentState || item.location?.state || '').trim().toLowerCase();
     } else {
-      itemDistrict = (item.district || '').trim().toLowerCase();
+      rawDistrict = item.district || '';
       itemState = (item.state || '').trim().toLowerCase();
     }
 
+    const itemDistrictNorm = normalizeDistrictName(rawDistrict).trim().toLowerCase();
+
     // Match district
     if (distTargets.length > 0) {
-      if (itemDistrict && distTargets.some(t => t === itemDistrict || t.includes(itemDistrict) || itemDistrict.includes(t))) {
+      if (itemDistrictNorm && distTargets.some(t => t === itemDistrictNorm || t.includes(itemDistrictNorm) || itemDistrictNorm.includes(t))) {
         return true;
       }
     }
@@ -202,8 +217,13 @@ function filterByJurisdiction(items: any[], actor?: UserSession | null, location
 
     // Match general jurisdiction string matching
     if (generalTargets.length > 0) {
-      if (itemDistrict && generalTargets.some(t => t.includes(itemDistrict) || itemDistrict.includes(t))) return true;
+      if (itemDistrictNorm && generalTargets.some(t => t.includes(itemDistrictNorm) || itemDistrictNorm.includes(t))) return true;
       if (itemState && generalTargets.some(t => t.includes(itemState) || itemState.includes(t))) return true;
+    }
+
+    // Default safety: do not drop items with unassigned or pending district
+    if (!rawDistrict && !itemState) {
+      return true;
     }
 
     return false;
@@ -952,16 +972,29 @@ apiRouter.post('/citizen/requests', async (req: Request, res: Response) => {
 
     const firstPhoto = photoUrls && photoUrls.length > 0 ? photoUrls[0] : undefined;
 
+    const normLang = normalizeLanguageCode(originalLanguage);
+    const rawDistInput = location?.district || incidentDistrict || '';
+    const normDist = normalizeDistrictName(rawDistInput);
+
     // Run AI Problem Intelligence with multimodal photo & language
     const aiAnalysis = await analyzeCitizenComplaint({
       title,
       description,
-      originalLanguage: originalLanguage || 'English',
-      locationAddress: location?.address,
-      district: location?.district,
+      originalLanguage: normLang,
+      locationAddress: location?.address || address,
+      district: normDist || rawDistInput,
       hasVoice: !!voiceRecorded,
       hasPhoto: !!firstPhoto,
       photoDataUrl: firstPhoto,
+    });
+
+    const resolvedCircleId = resolveProjectCircleId({
+      district: normDist || rawDistInput,
+      incidentDistrict: normDist || rawDistInput,
+      title,
+      description,
+      location,
+      aiAnalysis,
     });
 
     // =========================================================================
@@ -976,15 +1009,15 @@ apiRouter.post('/citizen/requests', async (req: Request, res: Response) => {
       ['ACTIVE', 'PROJECT_ATTACHED', 'VERIFICATION_REQUIRED'].includes(t.status)
     );
 
-    const inputLoc = ((location?.address || '') + ' ' + (location?.district || '') + ' ' + title + ' ' + description).toLowerCase();
     const inputCategory = aiAnalysis.category || 'ROAD_INFRASTRUCTURE';
 
-    // Search for existing matching project
+    // Search for existing matching project (supports normalized & translated district/keywords)
     let matchedProject = activeProjects.find((p) => {
       const pLoc = (p.district + ' ' + p.name + ' ' + p.scopeOfWork + ' ' + p.department + ' ' + p.description).toLowerCase();
-      // Check district/location proximity or keyword match
+      
       const locMatch =
-        (location?.district && pLoc.includes(location.district.toLowerCase())) ||
+        (normDist && pLoc.includes(normDist.toLowerCase())) ||
+        (rawDistInput && pLoc.includes(rawDistInput.toLowerCase())) ||
         (location?.address && pLoc.includes(location.address.toLowerCase().slice(0, 10)));
 
       const catMatch =
@@ -1011,22 +1044,27 @@ apiRouter.post('/citizen/requests', async (req: Request, res: Response) => {
         citizenId,
         citizenName,
         citizenContact,
-        title,
-        description,
-        originalLanguage: originalLanguage || 'English',
+        title, // ORIGINAL TEXT PRESERVED
+        description, // ORIGINAL TEXT PRESERVED
+        originalLanguage: normLang, // CANONICAL LANGUAGE CODE
         voiceRecorded: !!voiceRecorded,
         photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
         location: {
-          address: location?.address || 'Incident Location',
-          district: location?.district || 'Incident District',
-          state: location?.state || undefined,
+          address: location?.address || address || 'Incident Location',
+          district: normDist || rawDistInput || 'Incident District',
+          state: location?.state || incidentState || undefined,
           pincode: location?.pincode || undefined,
+          lat: location?.lat || latitude,
+          lng: location?.lng || longitude,
         },
         incidentState: incidentState || location?.state || undefined,
-        incidentDistrict: incidentDistrict || location?.district || undefined,
+        incidentDistrict: normDist || incidentDistrict || location?.district || undefined,
         incidentULB: incidentULB || undefined,
         incidentWard: incidentWard || undefined,
         address: address || location?.address || undefined,
+        latitude: latitude || location?.lat || undefined,
+        longitude: longitude || location?.lng || undefined,
+        circleId: resolvedCircleId,
         status: 'LINKED_TO_EXISTING',
         existingWorkMatch: true,
         linkedWorkTokenId: matchedToken?.id || matchedProject.workTokenId || 'WT-MATCHED',
@@ -1034,6 +1072,8 @@ apiRouter.post('/citizen/requests', async (req: Request, res: Response) => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         aiAnalysis,
+        routedDepartment: aiAnalysis?.suggestedDepartment || matchedProject.department || 'Public Works Department (PWD)',
+        routedAuthority: aiAnalysis?.authorityCandidateCode || resolvedCircleId,
       };
 
       dbStore.createRequest(linkedRequest);
@@ -1094,33 +1134,39 @@ apiRouter.post('/citizen/requests', async (req: Request, res: Response) => {
       citizenId,
       citizenName,
       citizenContact,
-      title,
-      description,
-      originalLanguage: originalLanguage || 'English',
+      title, // ORIGINAL TEXT PRESERVED
+      description, // ORIGINAL TEXT PRESERVED
+      originalLanguage: normLang, // CANONICAL LANGUAGE CODE
       voiceRecorded: !!voiceRecorded,
       photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
       location: {
-        address: location?.address || 'Incident Location',
-        district: location?.district || 'Incident District',
-        state: location?.state || undefined,
+        address: location?.address || address || 'Incident Location',
+        district: normDist || rawDistInput || 'Incident District',
+        state: location?.state || incidentState || undefined,
         pincode: location?.pincode || undefined,
-        lat: location?.lat,
-        lng: location?.lng,
+        lat: location?.lat || latitude,
+        lng: location?.lng || longitude,
       },
       incidentState: incidentState || location?.state || undefined,
-      incidentDistrict: incidentDistrict || location?.district || undefined,
+      incidentDistrict: normDist || incidentDistrict || location?.district || undefined,
       incidentULB: incidentULB || undefined,
       incidentWard: incidentWard || undefined,
       address: address || location?.address || undefined,
       latitude: latitude || location?.lat || undefined,
       longitude: longitude || location?.lng || undefined,
+      circleId: resolvedCircleId,
       status: 'SUBMITTED',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       aiAnalysis,
+      routedDepartment: aiAnalysis?.suggestedDepartment || 'Public Works Department (PWD)',
+      routedAuthority: aiAnalysis?.authorityCandidateCode || resolvedCircleId,
     };
 
     dbStore.createRequest(newRequest);
+
+    // Resolve / Link Issue Cluster
+    const cluster = dbStore.resolveIssueClusterForRequest(newRequest);
 
     dbStore.logAudit({
       actor: citizenName,
@@ -1131,8 +1177,8 @@ apiRouter.post('/citizen/requests', async (req: Request, res: Response) => {
       entityType: 'REQUEST',
       entityId: autoId,
       newState: 'SUBMITTED',
-      reason: `Citizen reported: ${title}`,
-      correlationId: autoId,
+      reason: `Citizen reported: ${title} (Linked to Issue Cluster ${cluster.id} with ${cluster.reportCount} reports)`,
+      correlationId: cluster.id,
     });
 
     dbStore.createNotification({
@@ -1186,6 +1232,134 @@ apiRouter.get('/citizen/requests/:id', (req: Request, res: Response) => {
 // -------------------------------------------------------------
 // OFFICIAL TRIAGE & WORK TOKENS
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// OFFICIAL TRIAGE & ISSUE CLUSTERS (REQUEST AGGREGATION)
+// -------------------------------------------------------------
+apiRouter.get('/official/clusters', (req: Request, res: Response) => {
+  const actor = requireAuth(req, res);
+  if (!actor) return;
+
+  // Rebuild clusters to ensure any newly added requests are grouped
+  dbStore.rebuildClusters();
+
+  const clusters = dbStore.getClusters();
+  const filtered = filterByJurisdiction(clusters, actor, 'location');
+  res.json({
+    success: true,
+    data: filtered,
+  });
+});
+
+apiRouter.get('/official/clusters/:id', (req: Request, res: Response) => {
+  const actor = requireAuth(req, res);
+  if (!actor) return;
+
+  const cluster = dbStore.getClusterById(req.params.id);
+  if (!cluster) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Issue cluster not found' },
+    });
+  }
+
+  const requests = dbStore.getRequests().filter((r) => cluster.requestIds.includes(r.id));
+  res.json({
+    success: true,
+    data: {
+      cluster,
+      requests,
+    },
+  });
+});
+
+apiRouter.post('/official/clusters/:id/triage', (req: Request, res: Response) => {
+  const actor = requireAuth(req, res);
+  if (!actor) return;
+
+  const cluster = dbStore.getClusterById(req.params.id);
+  if (!cluster) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Issue cluster not found' },
+    });
+  }
+
+  const { decision, notes, priority, department, jurisdiction } = req.body;
+
+  const newStatus = decision === 'ACCEPT' ? 'TRIAGED' : 'REJECTED';
+  dbStore.updateCluster(cluster.id, {
+    status: newStatus,
+    priority: priority || cluster.priority,
+    department: department || cluster.department,
+  });
+
+  const linkedRequests = dbStore.getRequests().filter((r) => cluster.requestIds.includes(r.id));
+  for (const r of linkedRequests) {
+    dbStore.updateRequest(r.id, {
+      status: newStatus,
+      triagePriority: priority || 'HIGH',
+    });
+  }
+
+  let workToken: WorkToken | undefined;
+  if (decision === 'ACCEPT') {
+    const autoTokenId = `WT-${new Date().getFullYear()}-${String(
+      dbStore.getWorkTokens().length + 1
+    ).padStart(3, '0')}`;
+
+    workToken = {
+      id: autoTokenId,
+      requestId: linkedRequests[0]?.id || cluster.id,
+      title: `Infrastructure Work Token: ${cluster.canonicalTitle}`,
+      department: department || cluster.department,
+      jurisdiction: jurisdiction || cluster.jurisdiction,
+      priority: priority || cluster.priority || 'HIGH',
+      status: 'ACTIVE',
+      issuedBy: actor.name,
+      issuedByRole: actor.role,
+      issuedAt: new Date().toISOString(),
+      digitalThreadSignature: `SHA256:${Date.now()}:${cluster.id}`,
+      notes: notes || `Work Token authorized for Issue Cluster ${cluster.id} representing ${cluster.reportCount} citizen reports.`,
+    };
+
+    dbStore.createWorkToken(workToken);
+
+    dbStore.updateCluster(cluster.id, {
+      linkedWorkTokenId: workToken.id,
+      status: 'TOKEN_ISSUED',
+    });
+
+    for (const r of linkedRequests) {
+      dbStore.updateRequest(r.id, {
+        status: 'TOKEN_ISSUED',
+        linkedWorkTokenId: workToken.id,
+        workTokenId: workToken.id,
+      });
+    }
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'WORK_TOKEN_AUTHORIZATION_ISSUED',
+      entityType: 'WORK_TOKEN',
+      entityId: workToken.id,
+      newState: 'ACTIVE',
+      reason: `Work Token ${workToken.id} authorized for Issue Cluster ${cluster.id} (${cluster.reportCount} citizen reports).`,
+      correlationId: cluster.id,
+    });
+  }
+
+  res.json({
+    success: true,
+    data: {
+      cluster: dbStore.getClusterById(cluster.id),
+      workToken,
+    },
+  });
+});
+
 apiRouter.get('/official/requests', (req: Request, res: Response) => {
   const actor = requireAuth(req, res);
   if (!actor) return;
@@ -1504,9 +1678,37 @@ apiRouter.get('/projects', (req: Request, res: Response) => {
       return authCheck.eligible;
     });
   }
+
+  // Populate attached evidence and inspections for each project
+  const populatedProjects = projects.map((p) => ({
+    ...p,
+    evidence: dbStore.getEvidence({ projectId: p.id }),
+    inspections: dbStore.getInspections(p.id),
+  }));
+
   res.json({
     success: true,
-    data: projects,
+    data: populatedProjects,
+  });
+});
+
+apiRouter.get('/projects/:id/evidence', (req: Request, res: Response) => {
+  const projectId = req.params.id;
+  const milestoneId = req.query.milestoneId as string | undefined;
+  const evidenceList = dbStore.getEvidence({ projectId, milestoneId });
+  res.json({
+    success: true,
+    data: evidenceList,
+  });
+});
+
+apiRouter.get('/contractor/evidence', (req: Request, res: Response) => {
+  const projectId = req.query.projectId as string | undefined;
+  const milestoneId = req.query.milestoneId as string | undefined;
+  const evidenceList = dbStore.getEvidence({ projectId, milestoneId });
+  res.json({
+    success: true,
+    data: evidenceList,
   });
 });
 
@@ -1617,7 +1819,7 @@ apiRouter.post('/projects/:id/sanction', (req: Request, res: Response) => {
     docs.push(doc);
 
     const updatePayload: any = {
-      status: 'FINANCIAL_SANCTIONED',
+      status: 'PENDING_FINANCIAL_SANCTION',
       sanctionedAt: new Date().toISOString(),
       officialReviewNotes: reason || project.officialReviewNotes,
       funding: updatedFunding,
@@ -1637,7 +1839,7 @@ apiRouter.post('/projects/:id/sanction', (req: Request, res: Response) => {
       entityId: projectId,
       projectId: projectId,
       previousState: project.status,
-      newState: 'FINANCIAL_SANCTIONED',
+      newState: 'PENDING_FINANCIAL_SANCTION',
       decision: 'APPROVE',
       amount: projectCost,
       reason: reason || 'Financial sanction approved by Sanctioning Authority.',
@@ -1654,8 +1856,8 @@ apiRouter.post('/projects/:id/sanction', (req: Request, res: Response) => {
       entityType: 'PROJECT',
       entityId: projectId,
       projectId: projectId,
-      previousState: 'FINANCIAL_SANCTIONED',
-      newState: 'FINANCIAL_SANCTIONED',
+      previousState: 'PENDING_FINANCIAL_SANCTION',
+      newState: 'PENDING_FINANCIAL_SANCTION',
       amount: projectCost,
       decision: 'GENERATED',
       reason: 'System generated Financial Sanction Order',
@@ -1840,12 +2042,12 @@ apiRouter.post('/projects/:id/authorize-funding', (req: Request, res: Response) 
   });
 
   const hasRecommendedContractor = Boolean(project.recommendedContractorId);
-  let updatedStatus: any = 'FUNDING_AUTHORIZED';
-  let actionName = 'FUNDING_AUTHORIZED';
+  let updatedStatus: any = 'WAITING_FOR_FUNDING_AUTHORIZATION';
+  let actionName = 'FUNDING_AUTHORIZATION_APPROVED';
 
   if (decision === 'AUTHORIZE') {
-    updatedStatus = 'FUNDING_AUTHORIZED';
-    actionName = 'FUNDING_AUTHORIZED';
+    updatedStatus = 'WAITING_FOR_FUNDING_AUTHORIZATION';
+    actionName = 'FUNDING_AUTHORIZATION_APPROVED';
   } else if (decision === 'RETURN') {
     updatedStatus = 'RETURNED';
     actionName = 'FUNDING_AUTHORIZATION_RETURNED';
@@ -1963,6 +2165,60 @@ apiRouter.get('/projects/:id/documents', (req: Request, res: Response) => {
   res.json({ success: true, data: project.governanceDocuments || [] });
 });
 
+apiRouter.get('/projects/:id/documents/:docId/download', async (req: Request, res: Response) => {
+  const actor = requireAuth(req, res);
+  if (!actor) return;
+
+  const projectId = req.params.id;
+  const docId = req.params.docId;
+
+  const project = dbStore.getProjectById(projectId);
+  if (!project) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found.' } });
+  }
+
+  // Security jurisdiction checks
+  const filtered = filterByJurisdiction([project], actor, 'top');
+  if (filtered.length === 0) {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied: project falls outside your regional jurisdiction.' } });
+  }
+
+  const docs = project.governanceDocuments || [];
+  const doc = docs.find((d) => d.id === docId);
+  if (!doc) {
+    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document not found.' } });
+  }
+
+  // Enforce document integrity checks to prevent cross-project horizontal enumeration
+  if (doc.projectId !== project.id) {
+    return res.status(400).json({ success: false, error: { code: 'INTEGRITY_ERROR', message: 'Access denied: Document project mismatch.' } });
+  }
+  if (project.workTokenId && doc.workTokenId !== project.workTokenId) {
+    return res.status(400).json({ success: false, error: { code: 'INTEGRITY_ERROR', message: 'Access denied: Document work token mismatch.' } });
+  }
+  if (project.requestId && doc.requestId !== project.requestId) {
+    return res.status(400).json({ success: false, error: { code: 'INTEGRITY_ERROR', message: 'Access denied: Document citizen request reference mismatch.' } });
+  }
+
+  // Ensure we respect expected document statuses for specific reviews if required by role-based checks
+  if (doc.docType === 'CONTRACTOR_RECOMMENDATION' && actor.role === 'SANCTIONING_AUTHORITY' && doc.status !== 'SIGNED_DOCUMENT_UPLOADED') {
+    return res.status(403).json({ success: false, error: { code: 'UNAUTHORIZED_DOCUMENT_STATE', message: 'Access denied: Recommendation report has not been signed and uploaded by the authorized Government Official.' } });
+  }
+
+  try {
+    const pdfBuffer = await buildPdfStream(doc, project, actor);
+    const formattedFilename = `JanDrishti_${doc.docType.toLowerCase()}_${doc.refNumber}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${formattedFilename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.end(pdfBuffer);
+  } catch (err: any) {
+    console.error('Failed to generate PDF:', err);
+    res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'PDF Generation failed.' } });
+  }
+});
+
 apiRouter.post('/projects/:id/documents/generate', (req: Request, res: Response) => {
   const actor = requireAuth(req, res);
   if (!actor) return;
@@ -2058,6 +2314,9 @@ apiRouter.post('/projects/:id/documents/:docId/upload', (req: Request, res: Resp
   if (doc.docType === 'FUNDING_AUTHORIZATION_ORDER' && actor.role !== 'POLICYMAKER') {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Policymakers can upload signed funding authorization orders.' } });
   }
+  if (doc.docType === 'WORK_ORDER' && actor.role !== 'OFFICIAL') {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only authorized Government Officials can upload signed Work Orders / Notice to Proceed.' } });
+  }
 
   doc.status = 'SIGNED_DOCUMENT_UPLOADED';
   doc.uploadedBy = actor.name;
@@ -2068,6 +2327,10 @@ apiRouter.post('/projects/:id/documents/:docId/upload', (req: Request, res: Resp
   let updatedStatus = project.status;
   let auditAction = '';
   let auditDetails = '';
+
+  const updatePayload: any = {
+    governanceDocuments: docs,
+  };
 
   if (doc.docType === 'CONTRACTOR_RECOMMENDATION') {
     updatedStatus = 'WAITING_FOR_FINANCIAL_SANCTION';
@@ -2092,17 +2355,22 @@ apiRouter.post('/projects/:id/documents/:docId/upload', (req: Request, res: Resp
 
     dbStore.createNotification({
       targetRole: 'SANCTIONING_AUTHORITY',
-      targetUserId: '',
+      targetUserId: project.sanctioningAuthorityId || '',
       title: `Sanction Case Pending: ${project.name}`,
-      message: `Signed contractor recommendation uploaded. Proposed amount: INR ${doc.amount}. Awaiting financial sanction.`,
+      message: `Signed contractor recommendation uploaded. Proposed amount: INR ${doc.amount.toLocaleString()}. Awaiting financial sanction review.`,
       entityId: project.id,
       entityType: 'PROJECT',
+      projectId: project.id,
+      workTokenId: project.workTokenId,
+      type: 'WAITING_FOR_FINANCIAL_SANCTION',
+      amount: doc.amount,
+      refNumber: doc.refNumber,
     });
 
   } else if (doc.docType === 'FINANCIAL_SANCTION_ORDER') {
-    updatedStatus = 'WAITING_FOR_FUNDING_AUTHORIZATION';
+    updatedStatus = 'FINANCIAL_SANCTIONED';
     auditAction = 'FINANCIAL_SANCTION_APPROVED';
-    auditDetails = `Signed financial sanction order uploaded by ${actor.name} (${actor.role}). Project moved to WAITING_FOR_FUNDING_AUTHORIZATION.`;
+    auditDetails = `Signed financial sanction order uploaded by ${actor.name} (${actor.role}). Project moved to FINANCIAL_SANCTIONED.`;
 
     dbStore.logAudit({
       actor: actor.name,
@@ -2113,10 +2381,10 @@ apiRouter.post('/projects/:id/documents/:docId/upload', (req: Request, res: Resp
       entityType: 'PROJECT',
       entityId: projectId,
       projectId: projectId,
-      previousState: 'FINANCIAL_SANCTIONED',
+      previousState: 'PENDING_FINANCIAL_SANCTION',
       newState: 'FINANCIAL_SANCTIONED',
       amount: doc.amount,
-      details: `Signed financial sanction order (${doc.refNumber}) uploaded for INR ${doc.amount}.`,
+      details: `Signed financial sanction order (${doc.refNumber}) uploaded for INR ${doc.amount.toLocaleString()}. Project moved to FINANCIAL_SANCTIONED.`,
       correlationId: projectId,
     });
 
@@ -2124,16 +2392,86 @@ apiRouter.post('/projects/:id/documents/:docId/upload', (req: Request, res: Resp
       targetRole: 'POLICYMAKER',
       targetUserId: '',
       title: `Funding Authorization Required: ${project.name}`,
-      message: `Signed sanction order uploaded for INR ${doc.amount}. Awaiting policymaker funding authorization.`,
+      message: `Project ${project.id} / ${project.workTokenId} has received financial sanction (INR ${doc.amount.toLocaleString()}) and requires your funding authorization.`,
       entityId: project.id,
       entityType: 'PROJECT',
+      projectId: project.id,
+      workTokenId: project.workTokenId,
+      type: 'WAITING_FOR_FUNDING_AUTHORIZATION',
+      location: `${project.district}, ${project.state}`,
+      amount: doc.amount,
+      refNumber: doc.refNumber,
     });
 
   } else if (doc.docType === 'FUNDING_AUTHORIZATION_ORDER') {
-    const hasRecommendedContractor = Boolean(project.recommendedContractorId);
-    updatedStatus = hasRecommendedContractor ? 'CONTRACTOR_ASSIGNED' : 'EXECUTION_ENABLED';
-    auditAction = 'FUNDING_AUTHORIZED_EFFECTIVE';
-    auditDetails = `Signed funding authorization order uploaded by ${actor.name} (${actor.role}). Project moved to ${updatedStatus}. Execution is now enabled.`;
+    // 1. Identify and resolve canonical approved contractor from authoritative records
+    let canonicalContractorId = project.recommendedContractorId || project.contractorId;
+    if (!canonicalContractorId && project.quotes && project.quotes.length > 0) {
+      const selectedQuote = project.quotes.find(q => q.officialSelection?.selected) || project.quotes[0];
+      if (selectedQuote) {
+        canonicalContractorId = selectedQuote.contractorId;
+      }
+    }
+
+    const contractorUser = canonicalContractorId ? dbStore.getUserById(canonicalContractorId) : null;
+    const canonicalContractorName = contractorUser?.organization || contractorUser?.name || project.recommendedContractorName || project.contractorName || 'Approved Civil Infrastructure Contractor';
+    const canonicalContractAmount = project.recommendedAmount || project.funding?.sanctioned || doc.amount || 0;
+
+    // 2. Prepare/Create the official Work Order context automatically
+    let workOrderDoc = docs.find(d => d.docType === 'WORK_ORDER');
+    if (!workOrderDoc) {
+      workOrderDoc = generateGovernanceDocument(project, 'WORK_ORDER', actor, {
+        sanctionRef: project.sanctionNumber,
+        fundingAuthRef: doc.refNumber,
+        approvedAmount: canonicalContractAmount,
+        contractorId: canonicalContractorId,
+        contractorName: canonicalContractorName,
+        tenderRef: project.tender?.id || `TND-${project.id}`,
+        notes: `System-prepared official Work Order automatically bound to approved contractor ${canonicalContractorName} following Policymaker Funding Authorization (${doc.refNumber}).`
+      });
+      workOrderDoc.contractorId = canonicalContractorId;
+      workOrderDoc.contractorName = canonicalContractorName;
+      workOrderDoc.amount = canonicalContractAmount;
+      docs.push(workOrderDoc);
+    } else {
+      workOrderDoc.contractorId = canonicalContractorId;
+      workOrderDoc.contractorName = canonicalContractorName;
+      workOrderDoc.amount = canonicalContractAmount;
+      workOrderDoc.status = 'GENERATED';
+    }
+
+    updatedStatus = 'CONTRACTOR_EXECUTION_AUTHORIZED';
+    auditAction = 'CONTRACTOR_EXECUTION_AUTHORIZED';
+    auditDetails = `Signed funding authorization order uploaded (${doc.refNumber}). System automatically associated approved contractor ${canonicalContractorName} (${canonicalContractorId}), prepared Work Order (${workOrderDoc.refNumber}), and authorized contractor execution.`;
+
+    updatePayload.fundingAuthorizedBy = actor.name;
+    updatePayload.fundingAuthorizationDate = new Date().toISOString();
+    updatePayload.fundingAuthorizationId = doc.id;
+    updatePayload.fundingAuthorizationNumber = doc.refNumber;
+
+    // Automatically carry forward approved contractor
+    updatePayload.contractorId = canonicalContractorId;
+    updatePayload.contractorName = canonicalContractorName;
+    updatePayload.assignedAt = new Date().toISOString();
+    updatePayload.assignmentEffectiveAt = new Date().toISOString();
+
+    // Attach Work Order context
+    updatePayload.workOrderId = workOrderDoc.id;
+    updatePayload.workOrderNumber = workOrderDoc.refNumber;
+    updatePayload.workOrderDate = new Date().toISOString();
+    updatePayload.workOrderIssuedBy = actor.name;
+
+    const updatedFunding = {
+      ...project.funding,
+      contracted: canonicalContractAmount,
+      remaining: (project.funding?.sanctioned || 0) - (project.funding?.expenditure || 0),
+    };
+    updatePayload.funding = updatedFunding;
+
+    if (project.tender) {
+      const tenderObj = { ...project.tender, status: 'AWARDED' as const };
+      updatePayload.tender = tenderObj;
+    }
 
     dbStore.logAudit({
       actor: actor.name,
@@ -2144,70 +2482,143 @@ apiRouter.post('/projects/:id/documents/:docId/upload', (req: Request, res: Resp
       entityType: 'PROJECT',
       entityId: projectId,
       projectId: projectId,
-      previousState: 'FUNDING_AUTHORIZED',
+      previousState: 'WAITING_FOR_FUNDING_AUTHORIZATION',
       newState: 'FUNDING_AUTHORIZED',
       amount: doc.amount,
-      details: `Signed funding authorization order (${doc.refNumber}) uploaded. Execution enabled.`,
+      details: `Signed funding authorization order (${doc.refNumber}) uploaded. Approved contractor ${canonicalContractorName} verified.`,
       correlationId: projectId,
     });
 
-    if (hasRecommendedContractor) {
-      dbStore.logAudit({
-        actor: actor.name,
-        actorRole: actor.role,
-        actorId: actor.id,
-        actorName: actor.name,
-        action: 'CONTRACTOR_ASSIGNMENT_EFFECTIVE',
-        entityType: 'PROJECT',
-        entityId: projectId,
-        projectId: projectId,
-        previousState: 'FUNDING_AUTHORIZED',
-        newState: 'CONTRACTOR_ASSIGNED',
-        amount: doc.amount,
-        details: `Contractor ${project.recommendedContractorName} assignment is now effective following signed funding authorization.`,
-        correlationId: projectId,
-      });
-    }
-
-    dbStore.createNotification({
-      targetRole: 'OFFICIAL',
-      targetUserId: '',
-      title: `Project Execution Enabled: ${project.name}`,
-      message: `Signed funding authorization uploaded. Contractor assignment is now effective. Contractor can begin execution.`,
-      entityId: project.id,
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'WORK_ORDER_AUTOMATICALLY_PREPARED',
       entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'FUNDING_AUTHORIZED',
+      newState: 'WORK_ORDER_ISSUED',
+      amount: canonicalContractAmount,
+      details: `Official Work Order ${workOrderDoc.refNumber} automatically prepared with approved contractor ${canonicalContractorName} for INR ${canonicalContractAmount.toLocaleString()}.`,
+      correlationId: projectId,
+    });
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'CONTRACTOR_EXECUTION_AUTHORIZED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'WORK_ORDER_ISSUED',
+      newState: 'CONTRACTOR_EXECUTION_AUTHORIZED',
+      amount: canonicalContractAmount,
+      details: `Execution authorization granted for approved contractor ${canonicalContractorName}. Project is now active for physical milestones.`,
+      correlationId: projectId,
     });
 
     dbStore.createNotification({
       targetRole: 'CONTRACTOR',
-      targetUserId: project.recommendedContractorId || '',
-      title: `Contract Awarded: ${project.name}`,
-      message: `Funding authorized and contract assigned. Proceed to milestones and evidence submission.`,
+      targetUserId: canonicalContractorId || '',
+      title: `Execution Authorized & Work Order Issued: ${project.name}`,
+      message: `Work Order ${workOrderDoc.refNumber} is issued for INR ${canonicalContractAmount.toLocaleString()}. Your execution authorization is active; you may commence physical works and milestone submissions.`,
       entityId: project.id,
       entityType: 'PROJECT',
+      projectId: project.id,
+      workTokenId: project.workTokenId,
+      type: 'CONTRACTOR_EXECUTION_AUTHORIZED',
+      amount: canonicalContractAmount,
+      refNumber: workOrderDoc.refNumber,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'OFFICIAL',
+      targetUserId: '',
+      title: `Funding Authorized & Contractor Execution Active: ${project.name}`,
+      message: `Project ${project.id} / ${project.workTokenId}: Funding authorized. Approved contractor ${canonicalContractorName} associated with Work Order ${workOrderDoc.refNumber}. Execution active.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+      projectId: project.id,
+      workTokenId: project.workTokenId,
+      type: 'CONTRACTOR_EXECUTION_AUTHORIZED',
+      amount: canonicalContractAmount,
+      refNumber: workOrderDoc.refNumber,
+    });
+
+  } else if (doc.docType === 'WORK_ORDER') {
+    updatedStatus = 'CONTRACTOR_EXECUTION_AUTHORIZED';
+    auditAction = 'WORK_ORDER_ISSUED';
+    auditDetails = `Signed official Work Order (${doc.refNumber}) uploaded by Official ${actor.name}. Project moved to CONTRACTOR_EXECUTION_AUTHORIZED. Execution is now authorized for contractor ${project.recommendedContractorName || project.contractorName}.`;
+
+    updatePayload.workOrderId = doc.id;
+    updatePayload.workOrderNumber = doc.refNumber;
+    updatePayload.workOrderIssuedBy = actor.name;
+    updatePayload.workOrderDate = new Date().toISOString();
+    updatePayload.contractorId = project.recommendedContractorId || project.contractorId;
+    updatePayload.contractorName = project.recommendedContractorName || project.contractorName;
+    updatePayload.assignedAt = new Date().toISOString();
+    updatePayload.assignmentEffectiveAt = new Date().toISOString();
+
+    if (project.tender) {
+      const tenderObj = project.tender;
+      tenderObj.status = 'AWARDED';
+      updatePayload.tender = tenderObj;
+    }
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'WORK_ORDER_DOCUMENT_UPLOADED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'WAITING_FOR_WORK_ORDER',
+      newState: 'WORK_ORDER_ISSUED',
+      amount: doc.amount,
+      details: `Signed official Work Order / Notice to Proceed (${doc.refNumber}) uploaded by Official ${actor.name}.`,
+      correlationId: projectId,
+    });
+
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'CONTRACTOR_EXECUTION_AUTHORIZED',
+      entityType: 'PROJECT',
+      entityId: projectId,
+      projectId: projectId,
+      previousState: 'WORK_ORDER_ISSUED',
+      newState: 'CONTRACTOR_EXECUTION_AUTHORIZED',
+      amount: doc.amount,
+      details: `Contractor ${updatePayload.contractorName} execution authorization granted following signed Work Order.`,
+      correlationId: projectId,
+    });
+
+    dbStore.createNotification({
+      targetRole: 'CONTRACTOR',
+      targetUserId: updatePayload.contractorId || project.contractorId || '',
+      title: `Official Work Order Issued: ${project.name}`,
+      message: `Work Order ${doc.refNumber} has been officially signed and sealed. Execution authorization granted for Project ${project.id}. You may now commence on-site execution.`,
+      entityId: project.id,
+      entityType: 'PROJECT',
+      projectId: project.id,
+      workTokenId: project.workTokenId,
+      type: 'CONTRACTOR_EXECUTION_AUTHORIZED',
+      amount: doc.amount,
+      refNumber: doc.refNumber,
     });
   }
 
   // Preserve the updated documents array
   docs[docIdx] = doc;
-
-  const updatePayload: any = {
-    status: updatedStatus,
-    governanceDocuments: docs,
-  };
-
-  if (doc.docType === 'FUNDING_AUTHORIZATION_ORDER' && Boolean(project.recommendedContractorId)) {
-    updatePayload.contractorId = project.recommendedContractorId;
-    updatePayload.contractorName = project.recommendedContractorName;
-    updatePayload.assignmentEffectiveAt = new Date().toISOString();
-    
-    // Also update tender status
-    const tenderObj = project.tender;
-    if (tenderObj) {
-      tenderObj.status = 'AWARDED';
-      updatePayload.tender = tenderObj;
-    }
-  }
+  updatePayload.status = updatedStatus;
 
   const updatedProject = dbStore.updateProject(projectId, updatePayload);
 
@@ -2612,13 +3023,23 @@ apiRouter.post('/projects/start', (req: Request, res: Response) => {
     });
   }
 
-  // Prevent start of execution if project has not been financially sanctioned by Sanctioning Authority
-  if (['PROPOSED', 'CONTRACTOR_RECOMMENDED', 'PENDING_FINANCIAL_SANCTION', 'RETURNED', 'REJECTED', 'FINANCIAL_SANCTION_REJECTED'].includes(project.status)) {
+  // Enforce server-side execution lock: Only authorized states can start execution
+  const allowedExecutionStates = [
+    'CONTRACTOR_EXECUTION_AUTHORIZED',
+    'WORK_ORDER_ISSUED',
+    'CONTRACTOR_ASSIGNED',
+    'EXECUTION_ENABLED',
+    'IN_PROGRESS',
+    'DELAYED',
+    'REWORK_REQUIRED',
+  ];
+
+  if (!allowedExecutionStates.includes(project.status)) {
     return res.status(403).json({
       success: false,
       error: {
-        code: 'FINANCIAL_SANCTION_REQUIRED',
-        message: 'Execution cannot begin until financial sanction and treasury release are approved by the Sanctioning Authority.',
+        code: 'EXECUTION_LOCKED',
+        message: `Execution is locked (Current status: ${project.status}). A signed Official Work Order / Notice to Proceed (CONTRACTOR_EXECUTION_AUTHORIZED) must be issued following Funding Authorization before on-site execution can commence.`,
       },
     });
   }
@@ -2639,12 +3060,15 @@ apiRouter.post('/projects/start', (req: Request, res: Response) => {
   dbStore.logAudit({
     actor: actor.name,
     actorRole: actor.role,
+    actorId: actor.id,
+    actorName: actor.name,
     action: 'PROJECT_EXECUTION_STARTED',
     entityType: 'PROJECT',
     entityId: projectId,
+    projectId: projectId,
     previousState: project.status,
     newState: 'IN_PROGRESS',
-    reason: 'Contractor mobilized machinery and initiated site execution.',
+    reason: 'Contractor mobilized machinery and initiated on-site civil execution.',
     correlationId: projectId,
   });
 
@@ -2679,6 +3103,33 @@ apiRouter.post('/contractor/evidence', async (req: Request, res: Response) => {
       });
     }
 
+    // Gating check: Contractor cannot submit evidence before Work Order is issued
+    const preExecutionLockedStates = [
+      'PROPOSED',
+      'RETURNED',
+      'REJECTED',
+      'SANCTIONED',
+      'TENDERED',
+      'CONTRACTOR_RECOMMENDED',
+      'WAITING_FOR_FINANCIAL_SANCTION',
+      'PENDING_FINANCIAL_SANCTION',
+      'FINANCIAL_SANCTIONED',
+      'WAITING_FOR_FUNDING_AUTHORIZATION',
+      'FINANCIAL_SANCTION_REJECTED',
+      'FUNDING_AUTHORIZED',
+      'WAITING_FOR_WORK_ORDER',
+    ];
+
+    if (preExecutionLockedStates.includes(project.status)) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'EXECUTION_LOCKED',
+          message: `Evidence submission is locked (Current status: ${project.status}). An official signed Work Order / Notice to Proceed (CONTRACTOR_EXECUTION_AUTHORIZED) must be issued before physical milestone evidence can be submitted.`,
+        },
+      });
+    }
+
     const milestone =
       (milestoneId ? project.milestones.find((m) => m.id === milestoneId) : undefined) ||
       project.milestones.find((m) => m.status === 'UNDER_REVIEW') ||
@@ -2688,15 +3139,32 @@ apiRouter.post('/contractor/evidence', async (req: Request, res: Response) => {
       project.milestones[0];
     const observations = dbStore.getCommunityObservations(projectId).map((o) => o.comment);
 
-    const mediaList = mediaRefs && mediaRefs.length > 0
-      ? mediaRefs
-      : [
-          {
-            type: 'photo',
-            url: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
-            caption: 'On-site execution cross-section photograph.',
-          },
-        ];
+    // Normalize media list from all possible formats
+    let mediaList: Array<{ type: 'photo' | 'document' | 'metric'; url: string; caption: string }> = [];
+    const rawMedia = mediaRefs || req.body.photos || req.body.photoUrls || (req.body.photoUrl ? [req.body.photoUrl] : []);
+    
+    if (Array.isArray(rawMedia) && rawMedia.length > 0) {
+      mediaList = rawMedia.map((item: any, idx: number) => {
+        if (typeof item === 'string' && item.trim()) {
+          return {
+            type: 'photo' as const,
+            url: item.trim(),
+            caption: `On-site execution photo #${idx + 1}`,
+          };
+        }
+        if (item && typeof item === 'object') {
+          const url = (item.url || item.photoUrl || item.uri || '').trim();
+          if (url) {
+            return {
+              type: (item.type as any) || 'photo',
+              url,
+              caption: item.caption || item.label || `On-site execution photo #${idx + 1}`,
+            };
+          }
+        }
+        return null;
+      }).filter((m): m is { type: 'photo' | 'document' | 'metric'; url: string; caption: string } => Boolean(m && m.url));
+    }
 
     // Trigger AI Evidence Verification
     const aiVerification = await verifyContractorEvidence({
@@ -2794,7 +3262,32 @@ apiRouter.post('/official/inspections', (req: Request, res: Response) => {
   if (!project) {
     return res.status(404).json({
       success: false,
-      error: { code: 'NOT_FOUND', message: 'Project not found' },
+      error: { code: 'NOT_FOUND', message: 'Project not found.' },
+    });
+  }
+
+  // 1. Enforce Jurisdiction check
+  const filtered = filterByJurisdiction([project], actor, 'top');
+  if (filtered.length === 0) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED_JURISDICTION',
+        message: `Unauthorized: Project ${projectId} (${project.district}) is outside your authorized operational jurisdiction.`,
+      },
+    });
+  }
+
+  // 2. Enforce Canonical Lifecycle State: Project must be in an active execution/inspection state
+  if (!isProjectInInspectionStage(project)) {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: 'INSPECTION_NOT_AVAILABLE',
+        message: `Project ${projectId} is at lifecycle stage "${project.status}". Official inspections are locked until physical execution commences and milestone progress evidence is submitted.`,
+        currentState: project.status,
+        requiredStates: ['IN_PROGRESS', 'VERIFICATION_REQUIRED', 'DELAYED', 'READY_FOR_COMPLETION', 'CONTRACTOR_EXECUTION_AUTHORIZED'],
+      },
     });
   }
 
@@ -2802,8 +3295,59 @@ apiRouter.post('/official/inspections', (req: Request, res: Response) => {
   if (!milestone) {
     return res.status(404).json({
       success: false,
-      error: { code: 'NOT_FOUND', message: 'Milestone not found' },
+      error: { code: 'NOT_FOUND', message: 'Milestone not found on this project.' },
     });
+  }
+
+  // 3. Prevent duplicate inspection on already verified milestone
+  if (milestone.status === 'VERIFIED') {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: 'MILESTONE_ALREADY_VERIFIED',
+        message: `Milestone "${milestone.title}" (M${milestone.sequence}) is already verified and certified. Further inspections are closed.`,
+        currentState: milestone.status,
+      },
+    });
+  }
+
+  // 4. Contractor Evidence Rule: Contractor MUST have submitted legitimate evidence
+  const allMilestoneEvidence = dbStore.getEvidence({ projectId }).filter((e) => e.milestoneId === milestoneId);
+  if (allMilestoneEvidence.length === 0) {
+    return res.status(422).json({
+      success: false,
+      error: {
+        code: 'EVIDENCE_REQUIRED',
+        message: `Cannot conduct official inspection on Milestone "${milestone.title}" because the contractor has not yet submitted site progress evidence.`,
+        currentState: milestone.status,
+      },
+    });
+  }
+
+  const matchedEvidence = evidenceId
+    ? allMilestoneEvidence.find((e) => e.id === evidenceId)
+    : allMilestoneEvidence[allMilestoneEvidence.length - 1];
+
+  const validEvidenceId = matchedEvidence ? matchedEvidence.id : allMilestoneEvidence[allMilestoneEvidence.length - 1].id;
+
+  // 5. Reinspection Rule: If rework was mandated, verify that contractor has submitted remediation evidence
+  const previousInspections = dbStore.getInspections(projectId).filter((i) => i.milestoneId === milestoneId);
+  const lastRejection = previousInspections.filter((i) => i.decision === 'REWORK_REQUIRED' || (i.decision as string) === 'REJECTED').pop();
+  if (lastRejection) {
+    const lastRejectionTime = new Date(lastRejection.inspectedAt).getTime();
+    const hasRemediationEvidence = allMilestoneEvidence.some(
+      (e) => e.status === 'REWORK_SUBMITTED' || new Date(e.submittedAt).getTime() > lastRejectionTime
+    );
+    if (!hasRemediationEvidence) {
+      return res.status(422).json({
+        success: false,
+        error: {
+          code: 'REMEDIATION_EVIDENCE_REQUIRED',
+          message: `Milestone "${milestone.title}" is under an active rework mandate. The contractor must submit remediation evidence before an official reinspection can be conducted.`,
+          currentState: 'REWORK_REQUIRED',
+        },
+      });
+    }
   }
 
   const inspId = `INSP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -2811,7 +3355,7 @@ apiRouter.post('/official/inspections', (req: Request, res: Response) => {
     id: inspId,
     projectId,
     milestoneId,
-    evidenceId: evidenceId || '',
+    evidenceId: validEvidenceId,
     inspectorId: actor.id,
     inspectorName: actor.name,
     decision: decision || 'APPROVED',
@@ -2823,8 +3367,8 @@ apiRouter.post('/official/inspections', (req: Request, res: Response) => {
   dbStore.createInspection(inspection);
 
   if (decision === 'REWORK_REQUIRED' || decision === 'REJECTED') {
-    if (evidenceId) {
-      dbStore.updateEvidence(evidenceId, {
+    if (validEvidenceId) {
+      dbStore.updateEvidence(validEvidenceId, {
         status: 'REJECTED',
         reworkNote: officialNotes,
       });
@@ -2869,39 +3413,31 @@ apiRouter.post('/official/inspections', (req: Request, res: Response) => {
       entityType: 'PROJECT',
     });
   } else {
-    // ACCEPTABLE / APPROVED field inspection
-    if (evidenceId) {
-      dbStore.updateEvidence(evidenceId, {
-        status: 'AI_ANALYZED',
+    // ACCEPTABLE / APPROVED field inspection -> VERIFY MILESTONE
+    if (validEvidenceId) {
+      dbStore.updateEvidence(validEvidenceId, {
+        status: 'VERIFIED',
       });
     }
 
     // Determine whether this was a reinspection after a previous rework mandate
-    const previousInspections = dbStore.getInspections(projectId).filter((i) => i.milestoneId === milestoneId && i.id !== inspId);
-    const wasReworkMandated = milestone.status === 'REWORK_REQUIRED' || milestone.status === 'DELAYED' || previousInspections.some((i) => i.decision === 'REWORK_REQUIRED');
+    const wasReworkMandated =
+      milestone.status === 'REWORK_REQUIRED' ||
+      milestone.status === 'DELAYED' ||
+      Boolean(lastRejection);
 
     const auditAction = wasReworkMandated ? 'REINSPECTION_COMPLETED' : 'INSPECTION_COMPLETED';
 
-    // Evaluate prerequisites to update milestone status to READY_FOR_VERIFICATION if applicable
-    const allEvidence = dbStore.getEvidence({ projectId });
-    const allInspections = dbStore.getInspections(projectId);
-    const allObservations = dbStore.getCommunityObservations(projectId);
-
-    const freshProj = dbStore.getProjectById(projectId)!;
-    const prereqs = evaluateMilestonePrerequisites(freshProj, milestone, allEvidence, allInspections, allObservations);
-
-    const newMilestoneStatus = prereqs.isReadyForVerification ? 'READY_FOR_VERIFICATION' : 'UNDER_REVIEW';
-
+    // Update milestone to VERIFIED
     dbStore.updateMilestone(projectId, milestoneId, {
-      status: newMilestoneStatus,
+      status: 'VERIFIED',
+      verifiedAt: new Date().toISOString(),
+      completedDate: new Date().toISOString().split('T')[0],
+      completionPercentageClaimed: 100,
       reworkNotes: undefined,
     });
 
-    dbStore.updateProject(projectId, {
-      status: 'VERIFICATION_REQUIRED',
-      reworkRequiredMessage: undefined,
-    });
-
+    // Log inspection audit
     dbStore.logAudit({
       actor: actor.name,
       actorRole: actor.role,
@@ -2912,18 +3448,106 @@ apiRouter.post('/official/inspections', (req: Request, res: Response) => {
       projectId,
       milestoneId,
       previousState: milestone.status,
-      newState: newMilestoneStatus,
+      newState: 'VERIFIED',
       reason: officialNotes || `Human field inspection completed satisfactorily for milestone ${milestone.title}.`,
       correlationId: projectId,
       timestamp: new Date().toISOString(),
     });
+
+    // Log milestone verified audit
+    dbStore.logAudit({
+      actor: actor.name,
+      actorRole: actor.role,
+      actorId: actor.id,
+      action: 'MILESTONE_VERIFIED',
+      entityType: 'MILESTONE',
+      entityId: milestoneId,
+      projectId,
+      milestoneId,
+      previousState: milestone.status,
+      newState: 'VERIFIED',
+      reason: officialNotes || `Human official verified milestone ${milestone.title} following on-site quality inspection sign-off.`,
+      correlationId: projectId,
+      timestamp: new Date().toISOString(),
+    });
+
+    let freshProj = dbStore.getProjectById(projectId)!;
+    const allVerified = freshProj.milestones.length > 0 && freshProj.milestones.every((m) => m.status === 'VERIFIED');
+
+    if (allVerified) {
+      dbStore.updateProject(projectId, {
+        status: 'READY_FOR_COMPLETION',
+        reworkRequiredMessage: undefined,
+      });
+
+      dbStore.updateWorkToken(project.workTokenId, {
+        status: 'VERIFICATION_REQUIRED',
+      });
+
+      dbStore.logAudit({
+        actor: actor.name,
+        actorRole: actor.role,
+        actorId: actor.id,
+        action: 'ALL_MILESTONES_VERIFIED',
+        entityType: 'PROJECT',
+        entityId: projectId,
+        projectId,
+        previousState: 'IN_PROGRESS',
+        newState: 'READY_FOR_COMPLETION',
+        reason: 'All civil engineering milestones have been inspected and verified. Project is now ready for final completion certification.',
+        correlationId: projectId,
+        timestamp: new Date().toISOString(),
+      });
+
+      dbStore.createNotification({
+        targetRole: 'OFFICIAL',
+        title: `All Milestones Verified: ${freshProj.name}`,
+        message: `Project ${projectId}: All ${freshProj.milestones.length} milestones have been verified. Project is ready for final completion certification.`,
+        entityId: projectId,
+        entityType: 'PROJECT',
+      });
+    } else {
+      // Advance next milestone in sequence if planned
+      const currentSeq = milestone.sequence;
+      const nextMilestone = freshProj.milestones
+        .filter((m) => m.sequence > currentSeq && m.status !== 'VERIFIED')
+        .sort((a, b) => a.sequence - b.sequence)[0];
+
+      if (nextMilestone && (nextMilestone.status === 'PLANNED' || nextMilestone.status === 'DELAYED' || nextMilestone.status === 'SUBMITTED')) {
+        dbStore.updateMilestone(projectId, nextMilestone.id, {
+          status: 'IN_PROGRESS',
+        });
+      }
+
+      dbStore.updateProject(projectId, {
+        status: 'IN_PROGRESS',
+        reworkRequiredMessage: undefined,
+      });
+    }
+
+    dbStore.createNotification({
+      targetRole: 'CONTRACTOR',
+      targetUserId: project.contractorId,
+      title: 'Milestone Verified by Official',
+      message: `Project ${projectId}: Milestone "${milestone.title}" has been officially inspected and verified.`,
+      entityId: projectId,
+      entityType: 'PROJECT',
+    });
   }
+
+  const updatedProj = dbStore.getProjectById(projectId)!;
+  const freshEvidence = dbStore.getEvidence({ projectId });
+  const freshInspections = dbStore.getInspections(projectId);
 
   res.json({
     success: true,
     data: {
       inspection,
-      project: dbStore.getProjectById(projectId),
+      project: {
+        ...updatedProj,
+        evidence: freshEvidence,
+        inspections: freshInspections,
+      },
     },
   });
 });
@@ -2940,6 +3564,25 @@ apiRouter.post('/official/rework/require', (req: Request, res: Response) => {
   const project = dbStore.getProjectById(projectId);
   if (!project) {
     return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
+  }
+
+  const filtered = filterByJurisdiction([project], actor, 'top');
+  if (filtered.length === 0) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED_JURISDICTION', message: 'Unauthorized: Project is outside your jurisdiction.' },
+    });
+  }
+
+  if (!isProjectInInspectionStage(project)) {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: 'INVALID_STATE',
+        message: `Cannot mandate rework on project in stage "${project.status}". Project has not commenced physical execution.`,
+        currentState: project.status,
+      },
+    });
   }
 
   const updated = dbStore.updateProject(projectId, {
@@ -2995,16 +3638,48 @@ const verifyMilestoneHandler = (req: Request, res: Response) => {
     return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
   }
 
+  const filtered = filterByJurisdiction([project], actor, 'top');
+  if (filtered.length === 0) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED_JURISDICTION', message: 'Unauthorized: Project is outside your jurisdiction.' },
+    });
+  }
+
+  // 1. Enforce Lifecycle State Gating: Verification only valid in execution/verification stages
+  if (!isProjectInInspectionStage(project)) {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: 'VERIFICATION_NOT_AVAILABLE',
+        message: `Project verification is not available at lifecycle stage "${project.status}". Project has not commenced physical execution.`,
+        currentState: project.status,
+      },
+    });
+  }
+
   const milestone = project.milestones.find((m) => m.id === milestoneId);
   if (!milestone) {
     return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Milestone not found' } });
+  }
+
+  // 2. Prevent duplicate milestone verification
+  if (milestone.status === 'VERIFIED') {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: 'MILESTONE_ALREADY_VERIFIED',
+        message: `Milestone "${milestone.title}" has already been verified and certified.`,
+        currentState: milestone.status,
+      },
+    });
   }
 
   const allEvidence = dbStore.getEvidence({ projectId });
   const allInspections = dbStore.getInspections(projectId);
   const allObservations = dbStore.getCommunityObservations(projectId);
 
-  // EVALUATE ALL PREREQUISITES
+  // 3. EVALUATE ALL PREREQUISITES
   const prereqs = evaluateMilestonePrerequisites(project, milestone, allEvidence, allInspections, allObservations);
 
   if (!prereqs.isReadyForVerification) {
@@ -3028,7 +3703,7 @@ const verifyMilestoneHandler = (req: Request, res: Response) => {
   });
 
   let freshProj = dbStore.getProjectById(projectId)!;
-  const allVerified = freshProj.milestones.every((m) => m.status === 'VERIFIED');
+  const allVerified = freshProj.milestones.length > 0 && freshProj.milestones.every((m) => m.status === 'VERIFIED');
 
   // Unlock next milestone if available
   if (!allVerified) {
@@ -3110,6 +3785,25 @@ const completeProjectHandler = (req: Request, res: Response) => {
     return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Project not found' } });
   }
 
+  const filtered = filterByJurisdiction([project], actor, 'top');
+  if (filtered.length === 0) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED_JURISDICTION', message: 'Unauthorized: Project is outside your jurisdiction.' },
+    });
+  }
+
+  if (project.status === 'COMPLETED') {
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: 'PROJECT_ALREADY_COMPLETED',
+        message: `Project ${projectId} has already been certified as complete.`,
+        currentState: 'COMPLETED',
+      },
+    });
+  }
+
   const allEvidence = dbStore.getEvidence({ projectId });
   const allInspections = dbStore.getInspections(projectId);
 
@@ -3184,6 +3878,7 @@ const completeProjectHandler = (req: Request, res: Response) => {
 };
 
 apiRouter.post('/projects/complete', completeProjectHandler);
+apiRouter.post('/projects/:id/complete', completeProjectHandler);
 apiRouter.post('/projects/:id/certify', completeProjectHandler);
 
 // -------------------------------------------------------------
@@ -4389,6 +5084,86 @@ apiRouter.post('/projects/assign', (req: Request, res: Response) => {
   });
 
   res.json({ success: true, data: updatedProject });
+});
+
+// Automated PDF generation test endpoint
+apiRouter.get('/system/test-pdf', async (req: Request, res: Response) => {
+  const dummyProject: Project = {
+    id: 'PRJ-TEST-001',
+    workTokenId: 'WT-TEST-001',
+    requestId: 'REQ-TEST-001',
+    name: 'Acceptance Test Highway Compaction & Restorative Civil Works',
+    description: 'Highway restorative engineering works.',
+    department: 'Public Works Department',
+    district: 'Coimbatore North',
+    state: 'Tamil Nadu',
+    sanctionNumber: 'SAN-TEST-001',
+    status: 'IN_PROGRESS',
+    scopeOfWork: 'Excavation and sub-base laying',
+    targetCompletionDate: '2026-12-31',
+    createdAt: new Date().toISOString(),
+    funding: {
+      allocated: 5000000,
+      sanctioned: 4500000,
+      contracted: 4000000,
+      expenditure: 0,
+      currency: 'INR',
+      schemeSource: 'State Road Development Scheme',
+      budgetHead: 'PWD-800',
+      lastAuditDate: '2026-09-30',
+    },
+    milestones: [],
+  };
+
+  const dummyAuthorizer: UserSession = {
+    id: 'gov-001',
+    name: 'Prabhu Kumar',
+    role: 'OFFICIAL',
+    email: 'prabhu@gov.in',
+    designation: 'Superintending Engineer',
+  };
+
+  const docTypes: Array<'CONTRACTOR_RECOMMENDATION' | 'FINANCIAL_SANCTION_ORDER' | 'FUNDING_AUTHORIZATION_ORDER' | 'WORK_ORDER'> = [
+    'CONTRACTOR_RECOMMENDATION',
+    'FINANCIAL_SANCTION_ORDER',
+    'FUNDING_AUTHORIZATION_ORDER',
+    'WORK_ORDER',
+  ];
+
+  const results: any[] = [];
+
+  for (const docType of docTypes) {
+    const dummyDoc = generateGovernanceDocument(dummyProject, docType, dummyAuthorizer, {
+      approvedAmount: 4200000,
+      reason: 'Standard legal compliance certification and quality checks satisfied.',
+    });
+
+    try {
+      const buffer = await buildPdfStream(dummyDoc, dummyProject, dummyAuthorizer);
+      const startsWithPDF = buffer.toString('ascii', 0, 8).startsWith('%PDF-1.');
+      results.push({
+        docType,
+        refNumber: dummyDoc.refNumber,
+        title: dummyDoc.title,
+        binarySize: buffer.length,
+        isValidPDFHeader: startsWithPDF,
+        status: 'PASSED',
+      });
+    } catch (err: any) {
+      results.push({
+        docType,
+        status: 'FAILED',
+        error: err.message,
+      });
+    }
+  }
+
+  res.json({
+    success: true,
+    message: 'JanDrishti Automated PDF Generation & Integrity Test',
+    timestamp: new Date().toISOString(),
+    results,
+  });
 });
 
 // API-specific JSON 404 handler so API requests never return HTML fallback

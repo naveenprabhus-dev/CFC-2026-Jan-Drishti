@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Project, GovernanceDocument, GovernanceDocType } from '../../types/domain';
-import { apiClient } from '../../services/api';
+import { apiClient, getSessionToken } from '../../services/api';
 import { 
   FileText, 
   Download, 
@@ -102,15 +102,17 @@ export const GovernanceDocumentConsole: React.FC<GovernanceDocumentConsoleProps>
         return 'Financial Sanction Order';
       case 'FUNDING_AUTHORIZATION_ORDER':
         return 'Funding & Treasury Authorization Order';
+      case 'WORK_ORDER':
+        return 'Official Work Order & Notice to Proceed';
       default:
         return type;
     }
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden max-w-4xl w-full mx-auto flex flex-col md:flex-row min-h-[500px]">
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden max-w-7xl w-full mx-auto flex flex-col lg:flex-row min-h-[600px]">
       {/* Left Control Panel / Document Metadata Panel */}
-      <div className="w-full md:w-80 bg-slate-50 border-r border-slate-200 p-6 flex flex-col justify-between gap-6 shrink-0">
+      <div className="w-full lg:w-80 bg-slate-50 border-r border-slate-200 p-6 flex flex-col justify-between gap-6 shrink-0">
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
@@ -222,13 +224,13 @@ export const GovernanceDocumentConsole: React.FC<GovernanceDocumentConsoleProps>
                       <span>Print</span>
                     </button>
                     <a
-                      href={`data:text/plain;charset=utf-8,${encodeURIComponent(JSON.stringify(doc, null, 2))}`}
-                      download={`JanDrishti_${doc.refNumber}.json`}
+                      href={`/api/projects/${project.id}/documents/${doc.id}/download?token=${encodeURIComponent(getSessionToken())}`}
+                      download={`JanDrishti_${doc.docType.toLowerCase()}_${doc.refNumber}.pdf`}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition text-center cursor-pointer"
                       title="Download Certified Record"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Download</span>
+                      <span>Download PDF</span>
                     </a>
                   </div>
 
@@ -278,9 +280,9 @@ export const GovernanceDocumentConsole: React.FC<GovernanceDocumentConsoleProps>
       </div>
 
       {/* Right Document Preview Area (High Fidelity Printed Report Sheet) */}
-      <div className="flex-1 bg-slate-100 p-6 md:p-10 overflow-y-auto max-h-[85vh] flex justify-center">
+      <div className="flex-1 bg-slate-100 p-6 lg:p-12 overflow-y-auto max-h-[85vh] flex justify-center">
         {doc ? (
-          <div className="bg-white border-2 border-slate-300 w-full max-w-xl p-8 md:p-10 shadow-lg relative font-serif text-slate-900 rounded-xs space-y-8 select-text">
+          <div className="bg-white border-2 border-slate-300 w-full max-w-3xl p-10 lg:p-12 shadow-lg relative font-serif text-slate-900 rounded-xs space-y-8 select-text">
             {/* Stamp/Watermark */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-5 pointer-events-none rotate-12 flex flex-col items-center">
               <Building2 className="w-64 h-64 text-slate-900" />
@@ -402,6 +404,27 @@ export const GovernanceDocumentConsole: React.FC<GovernanceDocumentConsoleProps>
                     <span className="text-slate-400 block text-[10px] uppercase font-bold">Disbursement Releases & Conditions</span>
                     <p className="text-slate-800 font-serif leading-relaxed italic bg-slate-50 p-3 rounded-lg mt-1">
                       "{doc.generatedContent.conditions}"
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {doc.docType === 'WORK_ORDER' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Approved Contract Value</span>
+                      <strong className="text-emerald-700 text-xs">{formatCurrency(doc.amount)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Work Order Reference</span>
+                      <strong className="text-slate-800 text-xs font-mono">{doc.refNumber}</strong>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Execution Scope, Milestones & Conditions</span>
+                    <p className="text-slate-800 font-serif leading-relaxed italic bg-slate-50 p-3 rounded-lg mt-1">
+                      "{doc.generatedContent.conditions || doc.generatedContent.scope}"
                     </p>
                   </div>
                 </div>

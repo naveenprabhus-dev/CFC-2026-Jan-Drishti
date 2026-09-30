@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { CitizenRequest } from '../../types/domain';
+import React, { useState, useEffect } from 'react';
+import { CitizenRequest, IssueCluster } from '../../types/domain';
+import { apiClient } from '../../services/api';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { TranslatedText } from '../common/TranslatedText';
 import { useLanguage } from '../../context/LanguageContext';
@@ -16,36 +17,73 @@ import {
   ChevronRight,
   ShieldCheck,
   Building,
+  Users,
+  Activity,
+  Layers,
 } from 'lucide-react';
 
 interface OfficialRequestQueueProps {
   requests: CitizenRequest[];
-  onOpenTriage: (request: CitizenRequest) => void;
-  onOpenRequestDetail: (request: CitizenRequest) => void;
+  clusters?: IssueCluster[];
+  onOpenTriage?: (request: CitizenRequest) => void;
+  onOpenClusterTriage?: (cluster: IssueCluster) => void;
+  onOpenRequestDetail?: (request: CitizenRequest) => void;
 }
 
 export const OfficialRequestQueue: React.FC<OfficialRequestQueueProps> = ({
   requests,
+  clusters: initialClusters,
   onOpenTriage,
+  onOpenClusterTriage,
   onOpenRequestDetail,
 }) => {
   const { t } = useLanguage();
+  const [clusters, setClusters] = useState<IssueCluster[]>(initialClusters || []);
+  const [isLoading, setIsLoading] = useState<boolean>(!initialClusters);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [severityFilter, setSeverityFilter] = useState('ALL');
+  const [priorityFilter, setPriorityFilter] = useState('ALL');
 
-  const filteredRequests = requests.filter((r) => {
+  useEffect(() => {
+    let isMounted = true;
+    const fetchClusters = async () => {
+      try {
+        const fetched = await apiClient.getOfficialClusters();
+        if (isMounted && Array.isArray(fetched)) {
+          setClusters(fetched);
+        }
+      } catch (err) {
+        console.warn('Failed to load official issue clusters:', err);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    fetchClusters();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const displayClusters = clusters.length > 0 ? clusters : [];
+
+  const filteredClusters = displayClusters.filter((c) => {
+    const query = searchQuery.toLowerCase().trim();
     const matchesSearch =
-      r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.location.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.location.district.toLowerCase().includes(searchQuery.toLowerCase());
+      !query ||
+      c.canonicalTitle.toLowerCase().includes(query) ||
+      c.id.toLowerCase().includes(query) ||
+      c.location.address.toLowerCase().includes(query) ||
+      c.location.district.toLowerCase().includes(query) ||
+      c.category.toLowerCase().includes(query) ||
+      c.priorityReasoning.some((r) => r.toLowerCase().includes(query));
 
-    const matchesStatus = statusFilter === 'ALL' || r.status === statusFilter;
-    const matchesSeverity =
-      severityFilter === 'ALL' || r.aiAnalysis?.severity === severityFilter;
+    const matchesStatus = statusFilter === 'ALL' || c.status === statusFilter;
+    const matchesPriority =
+      priorityFilter === 'ALL' || c.priority === priorityFilter;
 
-    return matchesSearch && matchesStatus && matchesSeverity;
+    return matchesSearch && matchesStatus && matchesPriority;
   });
 
   const getStatusBadge = (status: string) => {
@@ -73,16 +111,26 @@ export const OfficialRequestQueue: React.FC<OfficialRequestQueueProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-black text-slate-900">
-              {t('citizenRequestQueueTitle') || 'Citizen Request Queue'}
+              Aggregated Issue Clusters
             </h2>
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300">
-              {t('pwdJurisdiction') || 'PWD Central Circle Jurisdiction'}
+              PWD Central Circle Jurisdiction
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            {t('requestQueueSub') ||
-              'Incoming public infrastructure grievances awaiting administrative triage and token authorization'}
+            Multiple citizen complaints covering the same real-world defect are aggregated into unified operational issue clusters.
           </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-2xl flex items-center gap-2 text-xs font-bold text-amber-900">
+            <Users className="w-4 h-4 text-amber-600" />
+            <span>Total Citizen Reports: {requests.length}</span>
+          </div>
+          <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-2xl flex items-center gap-2 text-xs font-bold text-emerald-900">
+            <Layers className="w-4 h-4 text-emerald-600" />
+            <span>Operational Clusters: {clusters.length}</span>
+          </div>
         </div>
       </div>
 
@@ -94,10 +142,7 @@ export const OfficialRequestQueue: React.FC<OfficialRequestQueueProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={
-              t('searchRequestPlaceholder') ||
-              'Search by Request ID, defect keywords, or ward location...'
-            }
+            placeholder="Search by Cluster ID, defect keywords, or ward location..."
             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:border-emerald-500 focus:outline-none transition"
           />
         </div>
@@ -109,149 +154,143 @@ export const OfficialRequestQueue: React.FC<OfficialRequestQueueProps> = ({
             onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 rounded-xl border border-slate-200 text-xs bg-slate-50 text-slate-700 font-semibold focus:outline-none transition cursor-pointer"
           >
-            <option value="ALL">{t('allStatuses') || 'All Statuses'} ({requests.length})</option>
-            <option value="SUBMITTED">{t('statusSubmitted') || 'Submitted (Pending Triage)'}</option>
-            <option value="TOKEN_ISSUED">{t('statusTokenIssued') || 'Work Token Issued'}</option>
-            <option value="PROJECT_CREATED">{t('statusProjectCreated') || 'Project Created'}</option>
-            <option value="IN_PROGRESS">{t('statusInProgress') || 'In Execution'}</option>
-            <option value="COMPLETED">{t('statusCompleted') || 'Certified Complete'}</option>
-            <option value="REJECTED">{t('statusRejected') || 'Rejected'}</option>
+            <option value="ALL">All Statuses ({clusters.length})</option>
+            <option value="SUBMITTED">Submitted (Pending Triage)</option>
+            <option value="TOKEN_ISSUED">Work Token Issued</option>
+            <option value="IN_PROGRESS">In Execution</option>
+            <option value="COMPLETED">Certified Complete</option>
           </select>
 
-          {/* Severity Filter */}
+          {/* Priority Filter */}
           <select
-            value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value)}
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
             className="px-3 py-2 rounded-xl border border-slate-200 text-xs bg-slate-50 text-slate-700 font-semibold focus:outline-none transition cursor-pointer"
           >
-            <option value="ALL">{t('allSeverities') || 'All Severities'}</option>
-            <option value="CRITICAL">{t('criticalSeverity') || 'Critical Severity'}</option>
-            <option value="HIGH">{t('highSeverity') || 'High Severity'}</option>
-            <option value="MEDIUM">{t('mediumSeverity') || 'Medium Severity'}</option>
-            <option value="LOW">{t('lowSeverity') || 'Low Severity'}</option>
+            <option value="ALL">All Priorities</option>
+            <option value="EMERGENCY">Emergency Priority</option>
+            <option value="HIGH">High Priority</option>
+            <option value="MEDIUM">Medium Priority</option>
+            <option value="LOW">Low Priority</option>
           </select>
         </div>
       </div>
 
-      {/* Requests Table / Grid */}
+      {/* Clusters Table / Grid */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="py-3.5 px-4">{t('requestIdDate') || 'Request ID & Date'}</th>
-                <th className="py-3.5 px-4">{t('grievanceSummaryLocation') || 'Grievance Summary & Location'}</th>
-                <th className="py-3.5 px-4">{t('aiProblemClassification') || 'AI Problem Classification'}</th>
-                <th className="py-3.5 px-4">{t('suggestedSchemeDept') || 'Suggested Scheme / Dept'}</th>
-                <th className="py-3.5 px-4">{t('authorityStatus') || 'Authority Status'}</th>
-                <th className="py-3.5 px-4 text-right">{t('administrativeAction') || 'Administrative Action'}</th>
+                <th className="py-3.5 px-4">Cluster ID & Date</th>
+                <th className="py-3.5 px-4">Canonical Issue & Location</th>
+                <th className="py-3.5 px-4">Citizen Demand Signal</th>
+                <th className="py-3.5 px-4">Department & Category</th>
+                <th className="py-3.5 px-4">Priority & Reasoning</th>
+                <th className="py-3.5 px-4">Status</th>
+                <th className="py-3.5 px-4 text-right">Administrative Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredRequests.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    {t('noRequestsMatch') || 'No requests match the selected filters.'}
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    Loading issue clusters...
+                  </td>
+                </tr>
+              ) : filteredClusters.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    No issue clusters match the selected filters.
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50/70 transition">
-                    {/* ID & Date */}
+                filteredClusters.map((cluster) => (
+                  <tr key={cluster.id} className="hover:bg-slate-50/70 transition">
+                    {/* Cluster ID & Dates */}
                     <td className="py-4 px-4 align-top">
                       <span className="font-mono font-black text-xs text-slate-900 block">
-                        {r.id}
+                        {cluster.id}
                       </span>
                       <span className="text-[10px] text-slate-400 block mt-0.5">
-                        {new Date(r.createdAt).toLocaleDateString()}
+                        Latest: {new Date(cluster.lastReportedAt).toLocaleDateString()}
                       </span>
-                      {r.workTokenId && (
+                      {cluster.linkedWorkTokenId && (
                         <span className="mt-1 inline-block font-mono text-[9px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
-                          {r.workTokenId}
+                          {cluster.linkedWorkTokenId}
                         </span>
                       )}
                     </td>
 
-                    {/* Summary & Location with TranslatedText */}
+                    {/* Canonical Issue Title & Location */}
                     <td className="py-4 px-4 align-top max-w-xs">
-                      <TranslatedText
-                        text={r.title}
-                        originalLanguage={r.originalLanguage || 'en'}
-                        className="font-bold text-xs text-slate-900"
-                      />
+                      <span className="font-extrabold text-xs text-slate-900 block leading-snug">
+                        {cluster.canonicalTitle}
+                      </span>
                       <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1">
                         <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="truncate">{r.location.address}</span>
+                        <span className="truncate inline-block font-medium">
+                          {cluster.location.address}, {cluster.location.district}
+                        </span>
                       </div>
                     </td>
 
-                    {/* AI Classification */}
+                    {/* Prominent Citizen Report Count */}
                     <td className="py-4 px-4 align-top">
-                      {r.aiAnalysis ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                r.aiAnalysis.severity === 'CRITICAL'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : r.aiAnalysis.severity === 'HIGH'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}
-                            >
-                              {r.aiAnalysis.severity}
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-700">
-                              {r.aiAnalysis.category.replace('_', ' ')}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-500 line-clamp-1">
-                            {r.aiAnalysis.summary}
-                          </p>
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 italic">Pending AI analysis</span>
-                      )}
-                    </td>
-
-                    {/* Suggested Scheme / Dept */}
-                    <td className="py-4 px-4 align-top">
-                      <span className="text-[11px] font-semibold text-slate-800 block truncate max-w-[140px]">
-                        {r.aiAnalysis?.suggestedDepartment || 'PWD Central Circle'}
-                      </span>
-                      <span className="text-[10px] font-mono text-emerald-700 block">
-                        SRDMS / State Fund
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 font-extrabold text-[11px] border border-amber-300 shadow-2xs">
+                        <Users className="w-3.5 h-3.5 text-amber-700" />
+                        <span>{cluster.reportCount} citizens reported</span>
                       </span>
                     </td>
 
-                    {/* Authority Status */}
+                    {/* Department & Category */}
+                    <td className="py-4 px-4 align-top">
+                      <span className="text-[11px] font-bold text-slate-800 block truncate max-w-[140px]">
+                        {cluster.department}
+                      </span>
+                      <span className="text-[10px] font-semibold text-slate-500 block">
+                        {cluster.category.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+
+                    {/* Priority & Reasoning */}
+                    <td className="py-4 px-4 align-top max-w-xs">
+                      <div className="space-y-1">
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            cluster.priority === 'EMERGENCY'
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {cluster.priority}
+                        </span>
+                        <p className="text-[10px] text-slate-500 line-clamp-2">
+                          {cluster.priorityReasoning.slice(0, 2).join(' • ')}
+                        </p>
+                      </div>
+                    </td>
+
+                    {/* Status */}
                     <td className="py-4 px-4 align-top">
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getStatusBadge(
-                          r.status
+                          cluster.status
                         )}`}
                       >
-                        {r.status.replace('_', ' ')}
+                        {cluster.status.replace('_', ' ')}
                       </span>
                     </td>
 
                     {/* Actions */}
-                    <td className="py-4 px-4 align-top text-right space-x-2">
-                      {r.status === 'SUBMITTED' ? (
+                    <td className="py-4 px-4 align-top text-right">
+                      {onOpenClusterTriage && (
                         <button
-                          onClick={() => onOpenTriage(r)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer shadow-2xs inline-flex items-center gap-1"
+                          onClick={() => onOpenClusterTriage(cluster)}
+                          className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer shadow-2xs inline-flex items-center gap-1.5"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
-                          <span>{t('triageDecideBtn') || 'Review & Triage'}</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => onOpenRequestDetail(r)}
-                          className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer inline-flex items-center gap-1"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>{t('viewDetailsBtn') || 'Details'}</span>
+                          <span>Review Issue ({cluster.reportCount})</span>
                         </button>
                       )}
                     </td>

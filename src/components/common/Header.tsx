@@ -123,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="bg-slate-900 text-slate-200 text-xs px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span className="font-bold tracking-wider text-emerald-400">JanDrishti CFC-2026</span>
+            <span className="font-bold tracking-wider text-emerald-400">JanDrishti</span>
             <span className="hidden sm:inline text-slate-400">|</span>
             <span className="hidden sm:inline font-medium text-slate-300">
               {t('appTitle')}

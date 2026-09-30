@@ -26,6 +26,7 @@ const LANGUAGES = [
   { code: 'en', name: 'English (English)' },
   { code: 'ta', name: 'Tamil (தமிழ்)' },
   { code: 'hi', name: 'Hindi (हिन्दी)' },
+  { code: 'ml', name: 'Malayalam (മലയാളം)' },
   { code: 'te', name: 'Telugu (తెలుగు)' },
   { code: 'kn', name: 'Kannada (ಕನ್ನಡ)' },
 ];

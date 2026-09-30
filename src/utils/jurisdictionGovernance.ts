@@ -92,20 +92,214 @@ export const CANONICAL_CIRCLES: CanonicalCircle[] = [
   },
 ];
 
+export function normalizeLanguageCode(lang?: string): string {
+  if (!lang) return 'en';
+  const l = lang.toLowerCase().trim();
+  if (l === 'ta' || l.includes('tamil') || l.includes('தமிழ்')) return 'ta';
+  if (l === 'hi' || l.includes('hindi') || l.includes('हिन्दी')) return 'hi';
+  if (l === 'ml' || l.includes('malayalam') || l.includes('മലയാളം')) return 'ml';
+  if (l === 'te' || l.includes('telugu') || l.includes('తెలుగు')) return 'te';
+  if (l === 'kn' || l.includes('kannada') || l.includes('ಕನ್ನಡ')) return 'kn';
+  return 'en';
+}
+
+export function normalizeDistrictName(dist?: string): string {
+  if (!dist || !dist.trim()) return '';
+  const d = dist.toLowerCase().trim();
+
+  // Coimbatore
+  if (
+    d.includes('coimbatore') ||
+    d.includes('கோயம்புத்தூர்') ||
+    d.includes('கோவை') ||
+    d.includes('कोयंबटूर') ||
+    d.includes('കോയമ്പത്തൂർ') ||
+    d.includes('కోయంబత్తూర్') ||
+    d.includes('ಕೊಯಮತ್ತೂರು')
+  ) {
+    if (d.includes('north') || d.includes('வடக்கு') || d.includes('उत्तर') || d.includes('വടക്കൻ') || d.includes('ఉత్తర') || d.includes('ಉತ್ತರ')) {
+      return 'Coimbatore North';
+    }
+    if (d.includes('south') || d.includes('தெற்கு') || d.includes('दक्षिण') || d.includes('തെക്കൻ') || d.includes('దక్షిణ') || d.includes('ದಕ್ಷಿಣ')) {
+      return 'Coimbatore South';
+    }
+    if (d.includes('west') || d.includes('மேற்கு') || d.includes('पश्चिम') || d.includes('പടിഞ്ഞാറൻ') || d.includes('పశ్చిమ') || d.includes('ಪಶ್ಚಿಮ')) {
+      return 'Coimbatore West';
+    }
+    return 'Coimbatore';
+  }
+
+  // Chennai
+  if (
+    d.includes('chennai') ||
+    d.includes('madras') ||
+    d.includes('சென்னை') ||
+    d.includes('चेन्नई') ||
+    d.includes('ചെന്നൈ') ||
+    d.includes('చెన్నై') ||
+    d.includes('ಚೆನ್ನೈ')
+  ) {
+    if (d.includes('north') || d.includes('வட') || d.includes('उत्तर') || d.includes('വടക്കൻ') || d.includes('ఉత్తర') || d.includes('ಉತ್ತರ')) {
+      return 'Chennai North';
+    }
+    if (d.includes('south') || d.includes('தென்') || d.includes('दक्षिण') || d.includes('തെക്കൻ') || d.includes('దక్షిణ') || d.includes('ದಕ್ಷಿಣ')) {
+      return 'Chennai South';
+    }
+    return 'Chennai';
+  }
+
+  // Madurai
+  if (
+    d.includes('madurai') ||
+    d.includes('மதுரை') ||
+    d.includes('मदुरै') ||
+    d.includes('മധുര') ||
+    d.includes('మదురై') ||
+    d.includes('ಮದುರೈ')
+  ) {
+    return 'Madurai';
+  }
+
+  // Salem
+  if (
+    d.includes('salem') ||
+    d.includes('சேலம்') ||
+    d.includes('सेलम') ||
+    d.includes('സേലം') ||
+    d.includes('సేలం') ||
+    d.includes('ಸೇಲಂ')
+  ) {
+    return 'Salem';
+  }
+
+  // Tiruchirappalli / Trichy
+  if (
+    d.includes('trichy') ||
+    d.includes('tiruchirappalli') ||
+    d.includes('திருச்சிராப்பள்ளி') ||
+    d.includes('திருச்சி') ||
+    d.includes('तिरुचिरापल्ली') ||
+    d.includes('തിരുച്ചിറപ്പള്ളി') ||
+    d.includes('തിരുച്ചി') ||
+    d.includes('തിരുച്ചി') ||
+    d.includes('తిరుచిరాపల్లి') ||
+    d.includes('తిరుచి') ||
+    d.includes('ತಿರುಚಿರಾಪಳ್ಳಿ') ||
+    d.includes('ತಿರುಚಿ')
+  ) {
+    return 'Tiruchirappalli';
+  }
+
+  // Kakinada
+  if (
+    d.includes('kakinada') ||
+    d.includes('காக்கிநாடா') ||
+    d.includes('काकीनाडा') ||
+    d.includes('കാക്കിനട') ||
+    d.includes('కాకినాడ') ||
+    d.includes('ಕಾಕಿನಾಡ')
+  ) {
+    return 'Kakinada';
+  }
+
+  // Lucknow
+  if (
+    d.includes('lucknow') ||
+    d.includes('லக்னோ') ||
+    d.includes('लखनऊ') ||
+    d.includes('ലഖ്‌നൗ') ||
+    d.includes('లక్నో') ||
+    d.includes('ಲಕ್ನೋ')
+  ) {
+    return 'Lucknow';
+  }
+
+  // Kanchipuram
+  if (
+    d.includes('kanchipuram') ||
+    d.includes('காஞ்சிபுரம்') ||
+    d.includes('कांचीपुरम') ||
+    d.includes('കാഞ്ചീപുരം') ||
+    d.includes('కాంచీపురం') ||
+    d.includes('ಕಾಂಚೀಪುರಂ')
+  ) {
+    return 'Kanchipuram';
+  }
+
+  // Thanjavur
+  if (
+    d.includes('thanjavur') ||
+    d.includes('தஞ்சாவூர்') ||
+    d.includes('तंजावुर') ||
+    d.includes('തഞ്ചാവൂർ') ||
+    d.includes('తంజావూరు') ||
+    d.includes('ತಂಜಾವೂರು')
+  ) {
+    return 'Thanjavur';
+  }
+
+  // Erode
+  if (
+    d.includes('erode') ||
+    d.includes('ஈரோடு') ||
+    d.includes('इरोड') ||
+    d.includes('ഈറോഡ്') ||
+    d.includes('ఈరోడ్') ||
+    d.includes('ಈರೋಡ್')
+  ) {
+    return 'Erode';
+  }
+
+  // Tirunelveli
+  if (
+    d.includes('tirunelveli') ||
+    d.includes('nellai') ||
+    d.includes('திருநெல்வேலி') ||
+    d.includes('நெல்லை') ||
+    d.includes('तिरुनेलवेली') ||
+    d.includes('തിരുനെൽവേലി') ||
+    d.includes('തിരുനെൽവേലി') ||
+    d.includes('ತಿರುನೆಲ್ವೇಲಿ')
+  ) {
+    return 'Tirunelveli';
+  }
+
+  // Vellore
+  if (
+    d.includes('vellore') ||
+    d.includes('வேலூர்') ||
+    d.includes('वेल्लोर') ||
+    d.includes('വെല്ലൂർ') ||
+    d.includes('వేలూరు') ||
+    d.includes('ವೇಲೂರು')
+  ) {
+    return 'Vellore';
+  }
+
+  if (/^[a-zA-Z0-9\s-]+$/.test(dist)) {
+    return dist.trim();
+  }
+
+  return dist.trim();
+}
+
 /**
- * Resolves the canonical jurisdiction/circle ID for a project.
+ * Resolves the canonical jurisdiction/circle ID for a project or citizen request.
  */
-export function resolveProjectCircleId(project: Partial<Project>): string {
-  if (project.circleId && project.circleId.startsWith('TN-')) {
+export function resolveProjectCircleId(project: any): string {
+  if (project?.circleId && typeof project.circleId === 'string' && project.circleId.startsWith('TN-')) {
     return project.circleId;
   }
-  if (project.jurisdictionId && project.jurisdictionId.startsWith('TN-')) {
+  if (project?.jurisdictionId && typeof project.jurisdictionId === 'string' && project.jurisdictionId.startsWith('TN-')) {
     return project.jurisdictionId;
   }
 
-  const text = `${project.district || ''} ${project.name || ''} ${project.description || ''} ${project.state || ''}`.toLowerCase();
+  const rawDist = project?.district || project?.incidentDistrict || project?.location?.district || '';
+  const normalizedDist = normalizeDistrictName(rawDist);
 
-  if (text.includes('coimbatore')) {
+  const text = `${rawDist} ${normalizedDist} ${project?.name || project?.title || ''} ${project?.description || ''} ${project?.state || project?.incidentState || ''} ${project?.location?.address || ''} ${project?.aiAnalysis?.extractedEntities?.locationMentioned || ''} ${project?.aiAnalysis?.translatedTitle || ''}`.toLowerCase();
+
+  if (text.includes('coimbatore') || normalizedDist.toLowerCase().includes('coimbatore')) {
     if (text.includes('north') || text.includes('thudiyalur')) {
       return 'TN-PWD-COIMBATORE-NORTH';
     }
@@ -118,20 +312,20 @@ export function resolveProjectCircleId(project: Partial<Project>): string {
     return 'TN-PWD-COIMBATORE-NORTH';
   }
 
-  if (text.includes('chennai')) {
+  if (text.includes('chennai') || normalizedDist.toLowerCase().includes('chennai')) {
     if (text.includes('north')) return 'TN-PWD-CHENNAI-NORTH';
     if (text.includes('south')) return 'TN-PWD-CHENNAI-SOUTH';
     return 'TN-PWD-CHENNAI-CENTRAL';
   }
 
-  if (text.includes('madurai')) return 'TN-PWD-MADURAI-CENTRAL';
-  if (text.includes('salem')) return 'TN-PWD-SALEM-CENTRAL';
-  if (text.includes('trichy') || text.includes('tiruchirappalli')) return 'TN-PWD-TRICHY-CENTRAL';
+  if (text.includes('madurai') || normalizedDist.toLowerCase().includes('madurai')) return 'TN-PWD-MADURAI-CENTRAL';
+  if (text.includes('salem') || normalizedDist.toLowerCase().includes('salem')) return 'TN-PWD-SALEM-CENTRAL';
+  if (text.includes('trichy') || text.includes('tiruchirappalli') || normalizedDist.toLowerCase().includes('tiruchirappalli')) return 'TN-PWD-TRICHY-CENTRAL';
 
   // Dynamic fallback format: STATE-DEPT-DISTRICT
-  const stateCode = (project.state || 'TN').toLowerCase().includes('tamil') ? 'TN' : 'IN';
-  const rawDist = (project.district || 'CENTRAL').replace(/[^a-zA-Z0-9]/g, '-').toUpperCase();
-  return `${stateCode}-PWD-${rawDist}`;
+  const stateCode = (project?.state || project?.incidentState || 'TN').toLowerCase().includes('tamil') ? 'TN' : 'IN';
+  const cleanDist = normalizedDist ? normalizedDist.replace(/[^a-zA-Z0-9]/g, '-').toUpperCase() : 'CENTRAL';
+  return `${stateCode}-PWD-${cleanDist}`;
 }
 
 /**

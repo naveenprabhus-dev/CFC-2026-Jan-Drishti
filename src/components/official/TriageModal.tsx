@@ -137,7 +137,11 @@ export const TriageModal: React.FC<TriageModalProps> = ({
                 <span className="font-bold">AI Recommended Classification</span>
                 <ProvenanceBadge type="AI_ANALYSIS" modelOrSource={request.aiAnalysis.modelUsed} />
               </div>
-              <p className="text-slate-700 leading-relaxed mb-2">{request.aiAnalysis.summary}</p>
+              <TranslatedText
+                text={request.aiAnalysis.summary}
+                originalLanguage={request.originalLanguage || 'en'}
+                className="text-slate-700 leading-relaxed mb-2"
+              />
               <div className="flex flex-wrap gap-2 text-[11px]">
                 <span className="px-2 py-0.5 bg-white rounded border border-purple-200 font-semibold">
                   Category: {request.aiAnalysis.category}

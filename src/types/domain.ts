@@ -132,6 +132,11 @@ export interface AIProblemIntelligence {
     description: string;
     relevance: string;
   }>;
+  authorityCandidateCode?: string;
+  authorityCandidateName?: string;
+  authorityResolutionCertainty?: number;
+  translatedTitle?: string;
+  translatedDescription?: string;
   confidence: number;
   modelUsed: string;
   generatedAt: string;
@@ -163,6 +168,8 @@ export interface CitizenRequest {
   address?: string;
   latitude?: number;
   longitude?: number;
+  circleId?: string;
+  jurisdictionId?: string;
   status: RequestStatus;
   createdAt: string;
   updatedAt: string;
@@ -178,6 +185,44 @@ export interface CitizenRequest {
   routedDepartment?: string;
   routedAuthority?: string;
   urgentAlertSent?: boolean;
+  clusterId?: string;
+}
+
+export interface IssueCluster {
+  id: string;
+  clusterKey: string;
+  canonicalTitle: string;
+  category: string;
+  subcategory: string;
+  department: string;
+  jurisdiction: string;
+  location: {
+    address: string;
+    district: string;
+    state?: string;
+    pincode?: string;
+    lat?: number;
+    lng?: number;
+    ulb?: string;
+    ward?: string;
+  };
+  severity: SeverityLevel;
+  priority: PriorityLevel;
+  priorityScore: number;
+  priorityReasoning: string[];
+  aiAssessment?: string;
+  reportCount: number;
+  requestIds: string[];
+  firstReportedAt: string;
+  lastReportedAt: string;
+  status: RequestStatus;
+  circleId?: string;
+  jurisdictionId?: string;
+  linkedWorkTokenId?: string;
+  linkedProjectId?: string;
+  aggregationConfidence: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface WorkToken {
@@ -288,6 +333,13 @@ export interface Project {
   recommendedBy?: string;
   recommendedAt?: string;
   recommendationReason?: string;
+  fundingAuthorizationId?: string;
+  fundingAuthorizationDate?: string;
+  fundingAuthorizedBy?: string;
+  workOrderId?: string;
+  workOrderDate?: string;
+  workOrderIssuedBy?: string;
+  workOrderNumber?: string;
   assignmentEffectiveAt?: string;
   funding: FundingLedger;
   milestones: Milestone[];
@@ -527,6 +579,14 @@ export interface AppNotification {
   entityType: string;
   read: boolean;
   createdAt: string;
+  readAt?: string;
+  type?: string;
+  projectId?: string;
+  workTokenId?: string;
+  location?: string;
+  amount?: number;
+  refNumber?: string;
+  recipientUserId?: string;
 }
 
 export interface ApiResponse<T = any> {

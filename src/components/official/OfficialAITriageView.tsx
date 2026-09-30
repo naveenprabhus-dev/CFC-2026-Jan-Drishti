@@ -100,10 +100,18 @@ export const OfficialAITriageView: React.FC<OfficialAITriageViewProps> = ({
                     {r.status}
                   </span>
                 </div>
-                <h4 className="font-bold text-xs text-slate-800 truncate">{r.title}</h4>
+                <TranslatedText
+                  text={r.title}
+                  originalLanguage={r.originalLanguage || 'en'}
+                  className="font-bold text-xs text-slate-800 truncate"
+                />
                 <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1">
                   <MapPin className="w-3 h-3 shrink-0 text-slate-400" />
-                  <span className="truncate">{r.location.address}</span>
+                  <TranslatedText
+                    text={r.location.address}
+                    originalLanguage={r.originalLanguage || 'en'}
+                    className="truncate inline-block"
+                  />
                 </div>
               </button>
             ))}
@@ -171,9 +179,11 @@ export const OfficialAITriageView: React.FC<OfficialAITriageViewProps> = ({
                   </span>
                 </div>
 
-                <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                  {selectedReq.aiAnalysis.summary}
-                </p>
+                <TranslatedText
+                  text={selectedReq.aiAnalysis.summary}
+                  originalLanguage={selectedReq.originalLanguage || 'en'}
+                  className="text-xs text-slate-700 leading-relaxed font-medium"
+                />
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-white/80 p-4 rounded-2xl border border-indigo-100">
                   <div>

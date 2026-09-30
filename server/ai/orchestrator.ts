@@ -4,6 +4,11 @@ import {
   AIEvidenceVerification,
   SeverityLevel,
 } from '../../src/types/domain';
+import {
+  normalizeDistrictName,
+  normalizeLanguageCode,
+  resolveProjectCircleId,
+} from '../../src/utils/jurisdictionGovernance';
 
 const apiKey = process.env.GEMINI_API_KEY || '';
 
@@ -102,19 +107,29 @@ export async function analyzeCitizenComplaint(params: {
     GENERAL_CIVIC: 'District Municipal Administration',
   };
 
+  const normLang = normalizeLanguageCode(params.originalLanguage);
+  const normDist = normalizeDistrictName(params.district || params.locationAddress || '');
+  const circleId = resolveProjectCircleId({
+    district: normDist,
+    title: params.title,
+    description: params.description,
+    locationAddress: params.locationAddress,
+  });
+
   if (aiClient && apiKey) {
     try {
       const prompt = `You are the Public Infrastructure Intelligence System for civic governance (CFC-2026).
 Analyze this citizen problem report:
 Title: "${params.title}"
 Description: "${params.description}"
-Reported Language: "${params.originalLanguage || 'English'}"
-Location: "${params.locationAddress || params.district || 'Unspecified'}"
+Reported Language Code: "${normLang}" (Raw: "${params.originalLanguage || 'English'}")
+Location: "${params.locationAddress || params.district || 'Unspecified'}" (Normalized District: "${normDist}")
 
 CRITICAL INSTRUCTIONS:
 1. If an image is provided, examine the visible defects in the photograph carefully (e.g. road craters, flooded drains, broken culverts).
 2. The user's requested language is "${params.originalLanguage || 'English'}". Write the 'summary' and 'impactSummary' in "${params.originalLanguage || 'English'}" so the citizen understands the analysis in their language.
-3. Extract structured classification JSON.
+3. Provide normalized English translations in 'translatedTitle' and 'translatedDescription' if the input was non-English.
+4. Extract structured classification JSON.
 
 Return ONLY valid JSON matching schema:
 - intent: "PUBLIC_COMPLAINT" or "INFORMATION_INQUIRY" or "SUGGESTION"
@@ -126,6 +141,8 @@ Return ONLY valid JSON matching schema:
 - suggestedDepartment: exact government department responsible
 - estimatedUrgencyDays: number of recommended days for triage/response
 - extractedEntities: { locationMentioned, infrastructureType, impactSummary }
+- translatedTitle: English translation of the title
+- translatedDescription: English translation of the description
 - matchedGovernmentSchemes: list of relevant government schemes (e.g. PMGSY, AMRUT, Smart Cities Mission, State Highway Fund)`;
 
       let contentsInput: any = prompt;
@@ -161,6 +178,8 @@ Return ONLY valid JSON matching schema:
               summary: { type: Type.STRING },
               suggestedDepartment: { type: Type.STRING },
               estimatedUrgencyDays: { type: Type.INTEGER },
+              translatedTitle: { type: Type.STRING },
+              translatedDescription: { type: Type.STRING },
               extractedEntities: {
                 type: Type.OBJECT,
                 properties: {
@@ -212,7 +231,7 @@ Return ONLY valid JSON matching schema:
             'Public Works Department (PWD)',
           estimatedUrgencyDays: parsed.estimatedUrgencyDays || 3,
           extractedEntities: parsed.extractedEntities || {
-            locationMentioned: params.locationAddress || 'Local constituency',
+            locationMentioned: normDist || params.locationAddress || 'Local constituency',
             infrastructureType: parsed.category || 'Road Surface',
             impactSummary: 'Public transit disruption and hazard',
           },
@@ -224,6 +243,11 @@ Return ONLY valid JSON matching schema:
               relevance: 'Applicable for arterial and feeder road restoration.',
             },
           ],
+          authorityCandidateCode: circleId,
+          authorityCandidateName: `${normDist || 'Regional'} Infrastructure Circle`,
+          authorityResolutionCertainty: 0.95,
+          translatedTitle: parsed.translatedTitle || params.title,
+          translatedDescription: parsed.translatedDescription || params.description,
           confidence: 0.94,
           modelUsed: `${res.modelUsed} (Gemini AI Developer API)`,
           generatedAt: new Date().toISOString(),
@@ -261,7 +285,7 @@ Return ONLY valid JSON matching schema:
     suggestedDepartment: defaultSuggestedDepts[category] || 'Public Works Department (PWD)',
     estimatedUrgencyDays: severity === 'CRITICAL' ? 1 : severity === 'HIGH' ? 3 : 7,
     extractedEntities: {
-      locationMentioned: params.locationAddress || params.district || 'Civic Ward',
+      locationMentioned: normDist || params.locationAddress || params.district || 'Civic Ward',
       infrastructureType: category.replace('_', ' '),
       impactSummary: 'Reported disruption to public mobility and safety.',
     },
@@ -279,6 +303,11 @@ Return ONLY valid JSON matching schema:
         relevance: 'Eligible for fast-track municipal fund release.',
       },
     ],
+    authorityCandidateCode: circleId,
+    authorityCandidateName: `${normDist || 'Regional'} Infrastructure Circle`,
+    authorityResolutionCertainty: 0.90,
+    translatedTitle: params.title,
+    translatedDescription: params.description,
     confidence: 0.88,
     modelUsed: `${PRIMARY_MODEL} (Civic Intelligence Engine Fallback)`,
     generatedAt: new Date().toISOString(),

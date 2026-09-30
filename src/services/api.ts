@@ -1,5 +1,6 @@
 import {
   CitizenRequest,
+  IssueCluster,
   WorkToken,
   Project,
   ContractorEvidence,
@@ -300,8 +301,21 @@ export const apiClient = {
   getCitizenRequests: () => request<CitizenRequest[]>('/api/citizen/requests'),
   getRequestById: (id: string) => request<CitizenRequest>(`/api/citizen/requests/${id}`),
 
-  // Official Triage & Work Tokens
+  // Official Triage & Work Tokens & Issue Clusters
   getOfficialRequests: () => request<CitizenRequest[]>('/api/official/requests'),
+  getOfficialClusters: () => request<IssueCluster[]>('/api/official/clusters'),
+  getClusterDetail: (id: string) => request<{ cluster: IssueCluster; requests: CitizenRequest[] }>(`/api/official/clusters/${id}`),
+  triageCluster: (id: string, payload: {
+    decision: 'ACCEPT' | 'REJECT';
+    notes?: string;
+    priority?: string;
+    department?: string;
+    jurisdiction?: string;
+  }) =>
+    request<{ cluster: IssueCluster; workToken?: WorkToken }>(`/api/official/clusters/${id}/triage`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   triageRequest: (payload: {
     requestId: string;
     decision: 'ACCEPT' | 'REJECT';

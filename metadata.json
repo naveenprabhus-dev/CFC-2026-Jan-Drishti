@@ -1,5 +1,5 @@
 {
-  "name": "CFC-2026 — Public Development Intelligence & Transparency Platform",
+  "name": "JanDrishti — Public Development Intelligence & Transparency Platform",
   "description": "Digital Public Infrastructure connecting citizen infrastructure reports, AI understanding, official triage, Work Tokens, contractor execution, AI-assisted evidence verification, and public transparency.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

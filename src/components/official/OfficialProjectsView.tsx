@@ -3,6 +3,7 @@ import { Project, ContractorEvidence, Milestone } from '../../types/domain';
 import { ProvenanceBadge } from '../common/ProvenanceBadge';
 import { TranslatedText } from '../common/TranslatedText';
 import { useLanguage } from '../../context/LanguageContext';
+import { isProjectInInspectionStage } from '../../utils/milestoneGovernance';
 import {
   Layers,
   Search,
@@ -20,6 +21,7 @@ import {
   ExternalLink,
   ShieldCheck,
   Check,
+  Lock,
 } from 'lucide-react';
 
 interface OfficialProjectsViewProps {
@@ -199,16 +201,41 @@ export const OfficialProjectsView: React.FC<OfficialProjectsViewProps> = ({
 
                   <div className="flex items-center gap-2">
                     <HardHat className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span className="truncate font-semibold">{p.contractorName || 'Not Assigned'}</span>
+                    <span className="truncate font-semibold">{p.contractorName || p.recommendedContractorName || 'Not Assigned'}</span>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span className="font-mono font-bold">
-                      ₹{((p.funding?.sanctioned || 0) / 100000).toFixed(2)} Lakhs
+                      ₹{((p.funding?.contracted || p.recommendedAmount || p.funding?.sanctioned || 0) / 100000).toFixed(2)} Lakhs
                     </span>
                   </div>
                 </div>
+
+                {/* Post-Funding / Execution Summary Banner if Contractor is Assigned or Funding is Authorized */}
+                {(p.contractorName || p.recommendedContractorName || p.status === 'FUNDING_AUTHORIZED' || p.status === 'WAITING_FOR_WORK_ORDER' || p.status === 'WORK_ORDER_ISSUED' || p.status === 'CONTRACTOR_EXECUTION_AUTHORIZED' || p.status === 'EXECUTION_ENABLED' || p.status === 'CONTRACTOR_ASSIGNED' || p.status === 'IN_PROGRESS') && (
+                  <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">✓</span>
+                      <div>
+                        <span className="font-extrabold text-emerald-950 block">
+                          CONTRACTOR ASSIGNED: {p.contractorName || p.recommendedContractorName}
+                        </span>
+                        <span className="text-emerald-800 text-[11px]">
+                          Approved Contract Value: <strong className="font-mono">₹{((p.funding?.contracted || p.recommendedAmount || p.funding?.sanctioned || 0)).toLocaleString('en-IN')}</strong>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] font-bold">
+                      <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300">
+                        Funding: ✓ Authorized
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-teal-100 text-teal-900 border border-teal-300">
+                        Work Order: {p.status === 'CONTRACTOR_EXECUTION_AUTHORIZED' || p.status === 'EXECUTION_ENABLED' || p.status === 'IN_PROGRESS' || p.status === 'COMPLETED' ? 'ISSUED / EXECUTION ACTIVE' : 'READY / ISSUED'}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Milestones Progress Bar & Interactive Verification Targets */}
@@ -222,45 +249,54 @@ export const OfficialProjectsView: React.FC<OfficialProjectsViewProps> = ({
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {p.milestones?.map((m, idx) => (
-                    <button
-                      key={m.id || idx}
-                      type="button"
-                      onClick={() => onOpenInspection(p, undefined, m)}
-                      className={`p-2.5 rounded-xl border text-left text-[11px] transition cursor-pointer hover:ring-2 hover:ring-teal-400/50 ${
-                        m.status === 'VERIFIED'
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                          : m.status === 'IN_PROGRESS' || m.status === 'SUBMITTED'
-                          ? 'bg-blue-50 border-blue-300 text-blue-900'
-                          : m.status === 'DELAYED'
-                          ? 'bg-red-50 border-red-300 text-red-900'
-                          : 'bg-slate-100 border-slate-200 text-slate-600'
-                      }`}
-                      title={`Click to inspect Milestone ${m.sequence}: ${m.title}`}
-                    >
-                      <div className="flex items-center justify-between font-bold mb-0.5">
-                        <span className="flex items-center gap-1">
-                          <span>M{m.sequence}</span>
-                          {m.status === 'VERIFIED' && <Check className="w-3 h-3 text-emerald-600 inline" />}
-                        </span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded font-mono">{m.status}</span>
-                      </div>
-                      <p className="truncate text-[10px] text-slate-600">{m.title}</p>
-                    </button>
-                  ))}
+                  {p.milestones?.map((m, idx) => {
+                    const canInspect = isProjectInInspectionStage(p);
+                    return (
+                      <button
+                        key={m.id || idx}
+                        type="button"
+                        onClick={() => {
+                          if (canInspect) {
+                            onOpenInspection(p, undefined, m);
+                          } else {
+                            onOpenProjectDetail(p.id);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-left text-[11px] transition cursor-pointer ${
+                          m.status === 'VERIFIED'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                            : m.status === 'IN_PROGRESS' || m.status === 'SUBMITTED'
+                            ? 'bg-blue-50 border-blue-300 text-blue-900'
+                            : m.status === 'DELAYED'
+                            ? 'bg-red-50 border-red-300 text-red-900'
+                            : 'bg-slate-100 border-slate-200 text-slate-600'
+                        } ${canInspect ? 'hover:ring-2 hover:ring-teal-400/50' : 'hover:border-slate-300'}`}
+                        title={canInspect ? `Click to inspect Milestone ${m.sequence}: ${m.title}` : `Milestone ${m.sequence}: ${m.title} (Execution pending)`}
+                      >
+                        <div className="flex items-center justify-between font-bold mb-0.5">
+                          <span className="flex items-center gap-1">
+                            <span>M{m.sequence}</span>
+                            {m.status === 'VERIFIED' && <Check className="w-3 h-3 text-emerald-600 inline" />}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded font-mono">{m.status}</span>
+                        </div>
+                        <p className="truncate text-[10px] text-slate-600">{m.title}</p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Official Action Controls */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  {!p.contractorId && (
+                  {!p.contractorId && !p.recommendedContractorId && (
                     p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'CONTRACTOR_RECOMMENDED' || p.status === 'PENDING_FINANCIAL_SANCTION' ? (
                       <span className="px-3.5 py-2 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 font-bold text-xs flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5 text-amber-600" />
                         <span>Recommendation Submitted • Awaiting Sanctioning Authority</span>
                       </span>
-                    ) : (
+                    ) : p.status === 'SANCTIONED' || p.status === 'PROPOSED' || p.status === 'TENDERED' ? (
                       <button
                         type="button"
                         onClick={() => onOpenAssignContractor(p)}
@@ -269,17 +305,24 @@ export const OfficialProjectsView: React.FC<OfficialProjectsViewProps> = ({
                         <HardHat className="w-3.5 h-3.5" />
                         <span>Recommend Contractor</span>
                       </button>
-                    )
+                    ) : null
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => onOpenInspection(p)}
-                    className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs transition cursor-pointer shadow-2xs flex items-center gap-1.5"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>{t('launchInspectionSession') || 'Inspection Cockpit'}</span>
-                  </button>
+                  {isProjectInInspectionStage(p) ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenInspection(p)}
+                      className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs transition cursor-pointer shadow-2xs flex items-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{t('launchInspectionSession') || 'Inspection Cockpit'}</span>
+                    </button>
+                  ) : (
+                    <span className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-xs font-semibold flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Inspection Awaiting Execution</span>
+                    </span>
+                  )}
 
                   {p.status === 'IN_PROGRESS' && (
                     <button
@@ -292,7 +335,7 @@ export const OfficialProjectsView: React.FC<OfficialProjectsViewProps> = ({
                     </button>
                   )}
 
-                  {isAllVerified && p.status !== 'COMPLETED' && (
+                  {isAllVerified && (p.status === 'READY_FOR_COMPLETION' || p.status === 'VERIFICATION_REQUIRED') && p.milestones && p.milestones.length > 0 && (
                     <button
                       type="button"
                       onClick={() => onCompleteProject(p.id)}

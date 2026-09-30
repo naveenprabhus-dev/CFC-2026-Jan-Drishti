@@ -16,7 +16,9 @@ import {
   UserRole,
   ProjectTender,
   TenderQuote,
+  IssueCluster,
 } from '../../src/types/domain';
+import { normalizeDistrictName } from '../../src/utils/jurisdictionGovernance';
 
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -59,6 +61,7 @@ export interface ActiveSession {
 export interface DatabaseSchema {
   users: UserSession[];
   requests: CitizenRequest[];
+  clusters?: IssueCluster[];
   workTokens: WorkToken[];
   projects: Project[];
   evidence: ContractorEvidence[];
@@ -206,6 +209,7 @@ class DatabaseStore {
           });
 
           if (!Array.isArray(parsed.requests)) parsed.requests = [];
+          if (!Array.isArray(parsed.clusters)) parsed.clusters = [];
           if (!Array.isArray(parsed.workTokens)) parsed.workTokens = [];
           if (!Array.isArray(parsed.projects)) parsed.projects = [];
           if (!Array.isArray(parsed.evidence)) parsed.evidence = [];
@@ -641,6 +645,7 @@ class DatabaseStore {
     const notif = this.data.notifications.find((n) => n.id === id);
     if (notif) {
       notif.read = true;
+      notif.readAt = new Date().toISOString();
       this.saveData();
       return true;
     }
@@ -735,6 +740,172 @@ class DatabaseStore {
     };
     this.saveData();
     return this.data.quotes[idx];
+  }
+
+  // --- Issue Clusters / Request Aggregation ---
+  public getClusters(): IssueCluster[] {
+    if (!this.data.clusters) this.data.clusters = [];
+    return this.data.clusters;
+  }
+
+  public getClusterById(id: string): IssueCluster | undefined {
+    return this.getClusters().find((c) => c.id === id);
+  }
+
+  public updateCluster(id: string, update: Partial<IssueCluster>): IssueCluster | undefined {
+    if (!this.data.clusters) this.data.clusters = [];
+    const idx = this.data.clusters.findIndex((c) => c.id === id);
+    if (idx === -1) return undefined;
+    this.data.clusters[idx] = {
+      ...this.data.clusters[idx],
+      ...update,
+      updatedAt: new Date().toISOString(),
+    };
+    this.saveData();
+    return this.data.clusters[idx];
+  }
+
+  public resolveIssueClusterForRequest(req: CitizenRequest): IssueCluster {
+    if (!this.data.clusters) this.data.clusters = [];
+
+    const rawDist = req.location?.district || req.incidentDistrict || req.location?.address || '';
+    const normDist = normalizeDistrictName(rawDist);
+    const category = req.aiAnalysis?.category || 'CIVIC_INFRASTRUCTURE';
+    const subcategory = req.aiAnalysis?.intent || 'CIVIC_REPAIR';
+
+    // Ward or ULB or address token
+    const wardOrAddress = (req.incidentWard || req.incidentULB || req.location?.address || '').toLowerCase();
+
+    // Search for matching active cluster (same district & category)
+    let cluster = this.data.clusters.find((c) => {
+      if (c.status === 'COMPLETED' || c.status === 'REJECTED') return false;
+      const cDist = normalizeDistrictName(c.location?.district || '');
+      if (cDist !== normDist) return false;
+
+      // Category must match (e.g. ROAD vs STREET_LIGHTING are separate clusters)
+      if (c.category !== category) return false;
+
+      // Locality / Ward match or overlapping address text or same subcategory
+      const cWardOrAddress = (c.location?.ward || c.location?.ulb || c.location?.address || '').toLowerCase();
+      const addressMatch = wardOrAddress && cWardOrAddress && (wardOrAddress.includes(cWardOrAddress) || cWardOrAddress.includes(wardOrAddress));
+      const subcatMatch = c.subcategory === subcategory;
+
+      return addressMatch || subcatMatch || true;
+    });
+
+    if (cluster) {
+      if (!cluster.requestIds.includes(req.id)) {
+        cluster.requestIds.push(req.id);
+      }
+      cluster.reportCount = cluster.requestIds.length;
+      cluster.lastReportedAt = req.createdAt || new Date().toISOString();
+
+      if (req.aiAnalysis?.severity === 'CRITICAL' || cluster.severity === 'CRITICAL') {
+        cluster.severity = 'CRITICAL';
+      } else if (req.aiAnalysis?.severity === 'HIGH' || cluster.severity === 'HIGH') {
+        cluster.severity = 'HIGH';
+      }
+
+      // Priority Calculation Signal
+      const baseScore = cluster.reportCount * 20 + (cluster.severity === 'CRITICAL' ? 50 : cluster.severity === 'HIGH' ? 30 : 15);
+      cluster.priorityScore = baseScore;
+      cluster.priority = cluster.reportCount >= 4 || baseScore >= 60 || cluster.severity === 'CRITICAL' ? 'HIGH' : baseScore >= 80 ? 'EMERGENCY' : 'MEDIUM';
+
+      const reasons: string[] = [
+        `${cluster.reportCount} citizen reports submitted for this locality`,
+        `Assessed category: ${cluster.category.replace(/_/g, ' ')}`,
+        `Location: ${cluster.location.address || normDist}`,
+        `Assessed severity: ${cluster.severity}`,
+      ];
+      if (cluster.reportCount >= 3) {
+        reasons.push('High community demand density (multiple independent reports)');
+      }
+      if (req.aiAnalysis?.safetyRisk === 'HIGH') {
+        reasons.push('Public safety hazard identified by AI Intelligence');
+      }
+      if (cluster.linkedWorkTokenId) {
+        reasons.push(`Active Work Token linked: ${cluster.linkedWorkTokenId}`);
+      } else {
+        reasons.push('No active government work order found — official action required');
+      }
+
+      cluster.priorityReasoning = reasons;
+      cluster.aiAssessment = `Multiple independent citizen reports (${cluster.reportCount}) confirm recurring ${cluster.category.replace(/_/g, ' ')} issue in ${normDist}. Official triage required.`;
+      cluster.updatedAt = new Date().toISOString();
+
+      req.clusterId = cluster.id;
+      if (cluster.linkedWorkTokenId) {
+        req.linkedWorkTokenId = cluster.linkedWorkTokenId;
+        req.existingWorkMatch = true;
+      }
+      if (cluster.linkedProjectId) {
+        req.linkedProjectId = cluster.linkedProjectId;
+      }
+
+      this.saveData();
+      return cluster;
+    }
+
+    // Create new IssueCluster
+    const newId = `CLUSTER-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 100)}`;
+    const canonicalTitle = req.aiAnalysis?.translatedTitle || req.title;
+
+    const newCluster: IssueCluster = {
+      id: newId,
+      clusterKey: `${normDist}:${category}:${subcategory}`,
+      canonicalTitle,
+      category,
+      subcategory,
+      department: req.aiAnalysis?.suggestedDepartment || 'Public Works Department',
+      jurisdiction: req.incidentWard || normDist,
+      location: {
+        address: req.location?.address || `${normDist} Locality`,
+        district: normDist,
+        state: req.location?.state || 'Tamil Nadu',
+        ulb: req.incidentULB,
+        ward: req.incidentWard,
+        lat: req.location?.lat,
+        lng: req.location?.lng,
+      },
+      severity: req.aiAnalysis?.severity || 'MEDIUM',
+      priority: req.aiAnalysis?.severity === 'CRITICAL' ? 'EMERGENCY' : req.aiAnalysis?.severity === 'HIGH' ? 'HIGH' : 'MEDIUM',
+      priorityScore: req.aiAnalysis?.severity === 'CRITICAL' ? 70 : 35,
+      priorityReasoning: [
+        `1 citizen report submitted`,
+        `Assessed severity: ${req.aiAnalysis?.severity || 'MEDIUM'}`,
+        `Location: ${req.location?.address || normDist}`,
+        'No active government work found — awaiting official triage',
+      ],
+      aiAssessment: `Initial citizen report received for ${category.replace(/_/g, ' ')} in ${normDist}.`,
+      reportCount: 1,
+      requestIds: [req.id],
+      firstReportedAt: req.createdAt || new Date().toISOString(),
+      lastReportedAt: req.createdAt || new Date().toISOString(),
+      status: req.status || 'SUBMITTED',
+      circleId: req.circleId || 'TN-CENTRAL-01',
+      jurisdictionId: req.jurisdictionId,
+      linkedWorkTokenId: req.linkedWorkTokenId,
+      linkedProjectId: req.linkedProjectId,
+      aggregationConfidence: 0.92,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.data.clusters.push(newCluster);
+    req.clusterId = newCluster.id;
+    this.saveData();
+    return newCluster;
+  }
+
+  public rebuildClusters(): void {
+    if (!this.data.clusters) this.data.clusters = [];
+    if (!this.data.requests || this.data.requests.length === 0) return;
+
+    this.data.clusters = [];
+    for (const req of this.data.requests) {
+      this.resolveIssueClusterForRequest(req);
+    }
+    this.saveData();
   }
 }
 

@@ -22,6 +22,7 @@ import { AssignContractorModal } from '../official/AssignContractorModal';
 import {
   evaluateMilestonePrerequisites,
   evaluateProjectCompletionEligibility,
+  isProjectInInspectionStage,
 } from '../../utils/milestoneGovernance';
 import {
   X,
@@ -72,9 +73,9 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
     if (projectData) {
       if (projectData.status === 'CONTRACTOR_RECOMMENDED') {
         setSelectedDocType('CONTRACTOR_RECOMMENDATION');
-      } else if (projectData.status === 'WAITING_FOR_FINANCIAL_SANCTION' || projectData.status === 'FINANCIAL_SANCTIONED') {
+      } else if (projectData.status === 'WAITING_FOR_FINANCIAL_SANCTION' || projectData.status === 'PENDING_FINANCIAL_SANCTION') {
         setSelectedDocType('FINANCIAL_SANCTION_ORDER');
-      } else if (projectData.status === 'WAITING_FOR_FUNDING_AUTHORIZATION' || projectData.status === 'FUNDING_AUTHORIZED') {
+      } else if (projectData.status === 'FINANCIAL_SANCTIONED' || projectData.status === 'WAITING_FOR_FUNDING_AUTHORIZATION' || projectData.status === 'FUNDING_AUTHORIZED') {
         setSelectedDocType('FUNDING_AUTHORIZATION_ORDER');
       }
     }
@@ -682,53 +683,77 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
                             </button>
                           )}
 
-                          {/* Official Inspect Button */}
-                          {isOfficial && m.status !== 'VERIFIED' && (
-                            <button
-                              onClick={() =>
-                                setInspectingEvidence({
-                                  milestone: m,
-                                  evidence: mEvidence[0] || {
-                                    id: `EV-${p.id}-${m.id}`,
-                                    projectId: p.id,
-                                    milestoneId: m.id,
-                                    submittedBy: p.contractorId || 'ctr-001',
-                                    submittedByName: p.contractorName || 'Assigned Contractor',
-                                    submittedAt: new Date().toISOString(),
-                                    description: `Execution evidence for milestone: ${m.title}`,
-                                    mediaRefs: p.evidence?.[0] ? p.evidence[0].mediaRefs : [],
-                                    claimedProgress: m.completionPercentageClaimed || 100,
-                                    location: { label: `${p.district || 'Worksite'} Site` },
-                                    status: 'SUBMITTED',
-                                    provenance: 'CONTRACTOR_SUBMISSION',
-                                  },
-                                })
-                              }
-                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs flex items-center gap-1.5"
-                            >
-                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Record Field Inspection</span>
-                            </button>
-                          )}
+                          {/* Official Actions */}
+                          {isOfficial && m.status !== 'VERIFIED' && (() => {
+                            const isExecutionActive = isProjectInInspectionStage(p);
+                            if (!isExecutionActive) {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="px-3 py-1.5 bg-slate-100 text-slate-500 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5"
+                                    title={`Inspection locked: Project is at stage ${p.status}. Physical execution must commence first.`}
+                                  >
+                                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Inspection Awaiting Execution</span>
+                                  </span>
+                                  <span
+                                    className="px-3 py-1.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 opacity-60"
+                                    title="Milestone verification locked until execution, evidence submission, and inspection are complete."
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
+                                    <span>Verification Locked</span>
+                                  </span>
+                                </div>
+                              );
+                            }
 
-                          {/* Official Verify Milestone Button (Prerequisites Locked) */}
-                          {isOfficial && m.status !== 'VERIFIED' && (
-                            <button
-                              disabled={!prereqs.isReadyForVerification}
-                              onClick={() => {
-                                setVerificationNotes(`Official verification sign-off for milestone ${m.sequence} (${m.title}) after checking all evidence, AI verification, and field test logs.`);
-                                setVerifyingMilestone(m);
-                              }}
-                              className={`px-4 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                                prereqs.isReadyForVerification
-                                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
-                                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
-                              }`}
-                            >
-                              {!prereqs.isReadyForVerification && <Lock className="w-3.5 h-3.5" />}
-                              <span>{prereqs.isReadyForVerification ? 'Verify Milestone' : 'Verification Locked'}</span>
-                            </button>
-                          )}
+                            // When execution is active:
+                            return (
+                              <div className="flex items-center gap-2">
+                                {/* Official Inspect Button */}
+                                {mEvidence.length > 0 ? (
+                                  <button
+                                    onClick={() =>
+                                      setInspectingEvidence({
+                                        milestone: m,
+                                        evidence: mEvidence[mEvidence.length - 1],
+                                      })
+                                    }
+                                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs flex items-center gap-1.5"
+                                  >
+                                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>Record Field Inspection</span>
+                                  </button>
+                                ) : (
+                                  <span
+                                    className="px-3 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-xs font-semibold flex items-center gap-1.5"
+                                    title="Contractor must submit site progress evidence before inspection can be conducted"
+                                  >
+                                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                    <span>Awaiting Contractor Evidence</span>
+                                  </span>
+                                )}
+
+                                {/* Official Verify Milestone Button (Prerequisites Locked) */}
+                                <button
+                                  disabled={!prereqs.isReadyForVerification}
+                                  onClick={() => {
+                                    setVerificationNotes(`Official verification sign-off for milestone ${m.sequence} (${m.title}) after checking all evidence, AI verification, and field test logs.`);
+                                    setVerifyingMilestone(m);
+                                  }}
+                                  className={`px-4 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                                    prereqs.isReadyForVerification
+                                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                                  }`}
+                                  title={prereqs.isReadyForVerification ? 'Verify milestone' : prereqs.missingPrerequisites[0] || 'Prerequisites incomplete'}
+                                >
+                                  {!prereqs.isReadyForVerification && <Lock className="w-3.5 h-3.5" />}
+                                  <span>{prereqs.isReadyForVerification ? 'Verify Milestone' : 'Verification Locked'}</span>
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>

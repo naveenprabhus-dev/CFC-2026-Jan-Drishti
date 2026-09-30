@@ -48,8 +48,8 @@ export const OfficialProcurementView: React.FC<OfficialProcurementViewProps> = (
       {/* Tender Allocation Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects.map((p) => {
-          const isAssigned = !!p.contractorId || p.status === 'CONTRACTOR_ASSIGNED';
-          const isPendingSanction = p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'CONTRACTOR_RECOMMENDED' || p.status === 'PENDING_FINANCIAL_SANCTION';
+          const isAssigned = !!p.contractorId || p.status === 'CONTRACTOR_ASSIGNED' || p.status === 'CONTRACTOR_EXECUTION_AUTHORIZED' || p.status === 'EXECUTION_ENABLED' || p.status === 'WORK_ORDER_ISSUED' || p.status === 'IN_PROGRESS' || p.status === 'COMPLETED';
+          const isPendingSanction = p.status === 'WAITING_FOR_FINANCIAL_SANCTION' || p.status === 'CONTRACTOR_RECOMMENDED' || p.status === 'PENDING_FINANCIAL_SANCTION' || p.status === 'FINANCIAL_SANCTIONED' || p.status === 'WAITING_FOR_FUNDING_AUTHORIZATION';
           const isTendered = p.status === 'TENDERED';
 
           return (

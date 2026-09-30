@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CitizenRequest } from '../../types/domain';
 import { useLanguage } from '../../context/LanguageContext';
+import { TranslatedText } from '../common/TranslatedText';
 import {
   ArrowLeft,
   Search,
@@ -203,17 +204,23 @@ export const CitizenRequestsView: React.FC<CitizenRequestsViewProps> = ({
                 )}
 
                 <div className="flex-1 min-w-0 space-y-2">
-                  <h3 className="font-extrabold text-base text-slate-900 leading-snug">
-                    {req.title}
-                  </h3>
-                  <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
-                    {req.description}
-                  </p>
+                  <TranslatedText
+                    text={req.title}
+                    originalLanguage={req.originalLanguage || 'en'}
+                    className="font-extrabold text-base text-slate-900 leading-snug"
+                  />
+                  <TranslatedText
+                    text={req.description}
+                    originalLanguage={req.originalLanguage || 'en'}
+                    className="text-xs text-slate-600 line-clamp-2 leading-relaxed"
+                  />
                   <div className="flex items-center gap-2 text-xs text-slate-500 pt-1">
                     <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="truncate">
-                      {req.location.address}, {req.location.district}
-                    </span>
+                    <TranslatedText
+                      text={`${req.location.address}, ${req.location.district}`}
+                      originalLanguage={req.originalLanguage || 'en'}
+                      className="truncate inline-block"
+                    />
                   </div>
                 </div>
               </div>

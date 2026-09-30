@@ -91,13 +91,27 @@ export const TranslatedText: React.FC<TranslatedTextProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const normalizeLangCode = (lang: string): string => {
-    const l = (lang || '').toLowerCase();
-    if (l === 'tamil' || l === 'ta') return 'ta';
-    if (l === 'hindi' || l === 'hi') return 'hi';
-    if (l === 'malayalam' || l === 'ml') return 'ml';
-    if (l === 'telugu' || l === 'te') return 'te';
-    if (l === 'kannada' || l === 'kn') return 'kn';
+    const l = (lang || '').toLowerCase().trim();
+    if (l.includes('ta') || l.includes('tamil') || l.includes('தமிழ்')) return 'ta';
+    if (l.includes('hi') || l.includes('hindi') || l.includes('हिन्दी')) return 'hi';
+    if (l.includes('ml') || l.includes('malayalam') || l.includes('മലയാളം')) return 'ml';
+    if (l.includes('te') || l.includes('telugu') || l.includes('తెలుగు')) return 'te';
+    if (l.includes('kn') || l.includes('kannada') || l.includes('ಕನ್ನಡ')) return 'kn';
     return 'en';
+  };
+
+  const autoDetectLangCode = (str: string, providedLang?: string): string => {
+    if (providedLang && providedLang !== 'en' && providedLang !== 'English') {
+      const norm = normalizeLangCode(providedLang);
+      if (norm !== 'en') return norm;
+    }
+    if (!str) return 'en';
+    if (/[\u0B80-\u0BFF]/.test(str)) return 'ta';
+    if (/[\u0900-\u097F]/.test(str)) return 'hi';
+    if (/[\u0D00-\u0D7F]/.test(str)) return 'ml';
+    if (/[\u0C00-\u0C7F]/.test(str)) return 'te';
+    if (/[\u0C80-\u0CFF]/.test(str)) return 'kn';
+    return normalizeLangCode(providedLang || 'en');
   };
 
   const getLanguageNameInNative = (langCode: string): string => {
@@ -111,7 +125,7 @@ export const TranslatedText: React.FC<TranslatedTextProps> = ({
     }
   };
 
-  const origNormalized = normalizeLangCode(originalLanguage);
+  const origNormalized = autoDetectLangCode(text, originalLanguage);
   const destNormalized = normalizeLangCode(currentLang);
 
   useEffect(() => {
