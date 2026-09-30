@@ -14,8 +14,8 @@ Instead of treating a citizen request as an isolated complaint, JanDrishti creat
 
 | Resource | Link |
 |---|---|
-| 🌐 **Live Application** | [`JanDrishti Deployed application`](https://jandrishti-cfc-2026.ai.studio/) ` |
-| 🎥 **Demo Video** | [`JanDrishti Demo Video`](`https://drive.google.com/file/d/1thBAGVZvG15OeFolgLVeqbqVRt862GN5/view?usp=drive_link`) |
+| 🌐 **Live Application** | [`JanDrishti Deployed application`](https://jandrishti-cfc-2026.ai.studio/)  |
+| 🎥 **Demo Video** | [`JanDrishti Demo Video`](https://drive.google.com/file/d/1thBAGVZvG15OeFolgLVeqbqVRt862GN5/view?usp=drive_link) |
 | 📑 **Project Pitch Deck** | [`JanDrishti Pitch Deck`](JanDrishti_Presentation_Deck.pdf) |
 | 💻 **Source Code** | This repository |
 
