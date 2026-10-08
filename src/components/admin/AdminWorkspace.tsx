@@ -25,13 +25,22 @@ import {
   Shield,
   TrendingUp,
   Landmark,
+  Database,
+  Trash2,
 } from 'lucide-react';
 
 export const AdminWorkspace: React.FC = () => {
-  const { currentUser, allUsers, startAdminPreview, refreshUsers, availableStakeholders } = useAuth();
+  const { currentUser, allUsers, startAdminPreview, refreshUsers, availableStakeholders, resetDatabase } = useAuth();
   const { t } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'users' | 'provision_account' | 'persona_switcher'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'provision_account' | 'persona_switcher' | 'database'>('users');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Database Management State
+  const [dbStats, setDbStats] = useState<any>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [showCleanDbModal, setShowCleanDbModal] = useState(false);
+  const [isCleaningDb, setIsCleaningDb] = useState(false);
+  const [confirmCleanText, setConfirmCleanText] = useState('');
 
   // Form State for Government Official / Sanctioning Authority / Policymaker Provisioning
   const [customId, setCustomId] = useState('');
@@ -137,6 +146,44 @@ export const AdminWorkspace: React.FC = () => {
       await startAdminPreview(targetUser.id);
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Failed to launch preview session.' });
+    }
+  };
+
+  const fetchDatabaseStats = async () => {
+    setIsLoadingStats(true);
+    try {
+      const stats = await apiClient.getDatabaseStats();
+      setDbStats(stats);
+    } catch (err: any) {
+      console.warn('Failed to fetch database stats:', err);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'database') {
+      fetchDatabaseStats();
+    }
+  }, [activeTab]);
+
+  const handleCleanDatabase = async () => {
+    if (confirmCleanText !== 'CLEAN DATABASE') {
+      setMessage({ type: 'error', text: 'Please type "CLEAN DATABASE" to confirm deletion.' });
+      return;
+    }
+    setIsCleaningDb(true);
+    try {
+      await resetDatabase();
+      setMessage({ type: 'success', text: 'Database successfully cleaned. All operational records purged.' });
+      setShowCleanDbModal(false);
+      setConfirmCleanText('');
+      await fetchDatabaseStats();
+      await refreshUsers();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to clean database.' });
+    } finally {
+      setIsCleaningDb(false);
     }
   };
 
@@ -248,6 +295,18 @@ export const AdminWorkspace: React.FC = () => {
         >
           <Sparkles className="w-4 h-4 text-amber-500" />
           <span>Switch Persona ({availableStakeholders.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('database')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+            activeTab === 'database'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Database className="w-4 h-4 text-emerald-500" />
+          <span>Database Management</span>
         </button>
       </div>
 
@@ -788,6 +847,212 @@ export const AdminWorkspace: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: Database Management (Admin Only) */}
+      {activeTab === 'database' && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Database className="w-5 h-5 text-emerald-600" />
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    Database Management
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Persistent datastore monitoring, record counts, and administrator database lifecycle control.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={fetchDatabaseStats}
+                disabled={isLoadingStats}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isLoadingStats ? 'animate-spin' : ''}`} />
+                <span>Refresh Counts</span>
+              </button>
+            </div>
+
+            {/* Persistence Status Card */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4">
+                <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
+                  Database Status
+                </span>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-lg font-black text-emerald-950">
+                    {dbStats?.status || 'Persistent'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-700 mt-1">
+                  Server-side disk persistence in <code className="font-mono bg-emerald-100 px-1 py-0.5 rounded text-[10px]">data/cfc_store.json</code>
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Total Application Records
+                </span>
+                <span className="text-2xl font-black text-slate-900 mt-1 block">
+                  {dbStats ? dbStats.totalRecords : '...'}
+                </span>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Persisted across restarts, logouts, & session expirations
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Registered Accounts
+                </span>
+                <span className="text-2xl font-black text-slate-900 mt-1 block">
+                  {dbStats ? dbStats.usersCount : allUsers.length}
+                </span>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Including primary administrator & provisioned officers
+                </p>
+              </div>
+            </div>
+
+            {/* Granular Breakdown by Datastore Collection */}
+            <div className="space-y-3">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-700">
+                Live Persisted Collections Breakdown
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] text-slate-500 font-bold block">Citizen Requests</span>
+                  <span className="text-lg font-extrabold text-slate-900">{dbStats?.requestsCount ?? 0}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] text-slate-500 font-bold block">Issue Clusters</span>
+                  <span className="text-lg font-extrabold text-slate-900">{dbStats?.clustersCount ?? 0}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] text-slate-500 font-bold block">Work Tokens</span>
+                  <span className="text-lg font-extrabold text-slate-900">{dbStats?.workTokensCount ?? 0}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] text-slate-500 font-bold block">Civil Projects</span>
+                  <span className="text-lg font-extrabold text-slate-900">{dbStats?.projectsCount ?? 0}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] text-slate-500 font-bold block">Evidence / Photos</span>
+                  <span className="text-lg font-extrabold text-slate-900">{dbStats?.evidenceCount ?? 0}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] text-slate-500 font-bold block">Audit Trail Events</span>
+                  <span className="text-lg font-extrabold text-slate-900">{dbStats?.auditEventsCount ?? 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Destructive Clean DB Section */}
+            <div className="bg-rose-50/60 border border-rose-200 rounded-3xl p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-rose-950">
+                    Administrator Database Cleanup
+                  </h4>
+                  <p className="text-xs text-rose-800 mt-1 leading-relaxed max-w-3xl">
+                    Permanently purges all operational application records (citizen requests, work tokens, projects, contractor bids, field evidence, and non-admin users). The central Administrator identity account is securely retained for platform recovery.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCleanDbModal(true)}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition cursor-pointer shadow-sm flex items-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Clean DB</span>
+                </button>
+                <span className="text-[11px] text-rose-700 font-medium">
+                  Requires explicit two-factor text confirmation. Protected by server-side Admin role check.
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Clean DB Confirmation Modal */}
+      {showCleanDbModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-rose-700">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-base">
+                  WARNING: Clean Operational Database?
+                </h3>
+                <p className="text-xs text-rose-600 font-bold">
+                  Permanent Irreversible Data Deletion
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-950 space-y-2">
+              <p className="font-bold">
+                WARNING: This permanently deletes all application data. This action cannot be undone.
+              </p>
+              <p className="text-rose-800 text-[11px] leading-relaxed">
+                Only continue if you intentionally want to reset the database. All citizen grievances, work tokens, projects, contractor bids, evidence photos, and non-admin users will be permanently deleted. Only the Administrator account will remain.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Type <span className="font-mono text-rose-600 font-black">CLEAN DATABASE</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={confirmCleanText}
+                onChange={(e) => setConfirmCleanText(e.target.value)}
+                placeholder="CLEAN DATABASE"
+                className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 font-mono"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCleanDbModal(false);
+                  setConfirmCleanText('');
+                }}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCleanDatabase}
+                disabled={confirmCleanText !== 'CLEAN DATABASE' || isCleaningDb}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black text-white transition flex items-center gap-2 cursor-pointer shadow-sm ${
+                  confirmCleanText === 'CLEAN DATABASE' && !isCleaningDb
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-slate-300 cursor-not-allowed text-slate-500'
+                }`}
+              >
+                <Trash2 className={`w-4 h-4 ${isCleaningDb ? 'animate-spin' : ''}`} />
+                <span>{isCleaningDb ? 'Cleaning Database...' : 'Confirm Clean DB'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

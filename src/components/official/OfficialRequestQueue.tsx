@@ -39,11 +39,18 @@ export const OfficialRequestQueue: React.FC<OfficialRequestQueueProps> = ({
 }) => {
   const { t } = useLanguage();
   const [clusters, setClusters] = useState<IssueCluster[]>(initialClusters || []);
-  const [isLoading, setIsLoading] = useState<boolean>(!initialClusters);
+  const [isLoading, setIsLoading] = useState<boolean>(!initialClusters || initialClusters.length === 0);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
+
+  useEffect(() => {
+    if (initialClusters && initialClusters.length > 0) {
+      setClusters(initialClusters);
+      setIsLoading(false);
+    }
+  }, [initialClusters]);
 
   useEffect(() => {
     let isMounted = true;

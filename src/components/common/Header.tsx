@@ -62,6 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [showLangDropdown, setShowLangDropdown] = useState(false);
   const [showScopeModal, setShowScopeModal] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
 
   const getRoleIcon = (role: UserRole) => {
     switch (role) {
@@ -257,7 +258,7 @@ export const Header: React.FC<HeaderProps> = ({
               {isAdmin && (
                 <button
                   type="button"
-                  onClick={handleReset}
+                  onClick={() => setShowResetConfirmModal(true)}
                   disabled={isLoading}
                   className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg transition cursor-pointer"
                   title="Reset database to clean initial state"
@@ -465,6 +466,49 @@ export const Header: React.FC<HeaderProps> = ({
           isOpen={showScopeModal}
           onClose={() => setShowScopeModal(false)}
         />
+      )}
+
+      {/* Clean Database Confirmation Modal (Admin Only) */}
+      {showResetConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <RotateCcw className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">Clean Operational Database?</h3>
+                <p className="text-xs text-slate-500">Administrator System Maintenance</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed bg-amber-50/80 p-3.5 rounded-2xl border border-amber-300 font-medium">
+              WARNING: This permanently deletes all application data. This action cannot be undone. Only continue if you intentionally want to reset the database. Existing projects, citizen grievances, contractors, evidence, work tokens, and non-admin users will be permanently removed. The primary Administrator account will be preserved for system recovery.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirmModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowResetConfirmModal(false);
+                  await handleReset();
+                }}
+                disabled={isLoading}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition cursor-pointer shadow-xs flex items-center gap-1.5"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <span>Yes, Clean Database</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

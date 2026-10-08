@@ -643,7 +643,24 @@ export const apiClient = {
   getNotifications: () => request<AppNotification[]>('/api/notifications'),
   markNotificationRead: (id: string) => request<{ success: boolean }>(`/api/notifications/${id}/read`, { method: 'POST' }),
 
-  // System Clean Reset
+  // System Clean Reset & Database Stats
+  getDatabaseStats: () =>
+    request<{
+      status: string;
+      totalRecords: number;
+      usersCount: number;
+      requestsCount: number;
+      clustersCount: number;
+      workTokensCount: number;
+      projectsCount: number;
+      evidenceCount: number;
+      inspectionsCount: number;
+      observationsCount: number;
+      ngoAssignmentsCount: number;
+      auditEventsCount: number;
+      tendersCount: number;
+      quotesCount: number;
+    }>('/api/system/stats'),
   resetDatabase: () => request<any>('/api/system/reset', { method: 'POST' }),
 
   translateText: (text: string, targetLanguage: string) =>

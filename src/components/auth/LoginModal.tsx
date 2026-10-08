@@ -165,7 +165,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 Password
               </label>
               {selectedRole === 'ADMIN' && (
-                <span className="text-[10px] text-slate-400 font-mono">Default: admin</span>
+                <span className="text-[10px] text-slate-500 font-mono font-medium">Default: admin</span>
               )}
             </div>
             <div className="relative">
@@ -174,7 +174,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password (optional if unconfigured)"
+                placeholder={selectedRole === 'ADMIN' ? 'Enter password (Default: admin)' : 'Enter password (optional if unconfigured)'}
                 className="w-full text-xs pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-500 transition"
               />
             </div>

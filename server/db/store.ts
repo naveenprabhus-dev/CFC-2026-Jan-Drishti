@@ -18,7 +18,7 @@ import {
   TenderQuote,
   IssueCluster,
 } from '../../src/types/domain';
-import { normalizeDistrictName } from '../../src/utils/jurisdictionGovernance';
+import { normalizeDistrictName, normalizeStateName } from '../../src/utils/jurisdictionGovernance';
 
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -77,6 +77,8 @@ export interface DatabaseSchema {
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'cfc_store.json');
+const DB_TMP_FILE = path.join(DATA_DIR, 'cfc_store.tmp.json');
+const DB_BACKUP_FILE = path.join(DATA_DIR, 'cfc_store.backup.json');
 
 // The application starts with primary administrative account
 export const DEFAULT_ADMIN: UserSession = {
@@ -189,47 +191,77 @@ class DatabaseStore {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
 
+      let parsed: any = null;
+
+      // 1. Attempt loading from primary database file
       if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.users)) {
-          let modified = false;
-          // Ensure default admin exists
-          if (!parsed.users.some((u: UserSession) => u.role === 'ADMIN' || u.id === 'admin-001')) {
-            parsed.users.unshift({ ...DEFAULT_ADMIN });
-            modified = true;
+        try {
+          const raw = fs.readFileSync(DB_FILE, 'utf-8');
+          if (raw && raw.trim().length > 0) {
+            parsed = JSON.parse(raw);
           }
-
-          // Ensure all stored passwords are secure hashes
-          parsed.users.forEach((u: UserSession) => {
-            if (u.password && !u.password.includes(':')) {
-              u.password = hashPassword(u.password);
-              modified = true;
-            }
-          });
-
-          if (!Array.isArray(parsed.requests)) parsed.requests = [];
-          if (!Array.isArray(parsed.clusters)) parsed.clusters = [];
-          if (!Array.isArray(parsed.workTokens)) parsed.workTokens = [];
-          if (!Array.isArray(parsed.projects)) parsed.projects = [];
-          if (!Array.isArray(parsed.evidence)) parsed.evidence = [];
-          if (!Array.isArray(parsed.inspections)) parsed.inspections = [];
-          if (!Array.isArray(parsed.communityObservations)) parsed.communityObservations = [];
-          if (!Array.isArray(parsed.ngoAssignments)) parsed.ngoAssignments = [];
-          if (!Array.isArray(parsed.auditEvents)) parsed.auditEvents = [];
-          if (!Array.isArray(parsed.notifications)) parsed.notifications = [];
-          
-          if (modified) {
-            this.saveData(parsed as DatabaseSchema);
-          }
-
-          return parsed as DatabaseSchema;
+        } catch (readErr) {
+          console.warn('[DatabaseStore] Could not parse primary cfc_store.json, attempting backup recovery:', readErr);
         }
       }
+
+      // 2. If primary file missing or unparseable, recover from standby backup
+      if ((!parsed || !Array.isArray(parsed.users)) && fs.existsSync(DB_BACKUP_FILE)) {
+        try {
+          const backupRaw = fs.readFileSync(DB_BACKUP_FILE, 'utf-8');
+          if (backupRaw && backupRaw.trim().length > 0) {
+            parsed = JSON.parse(backupRaw);
+            console.info('[DatabaseStore] Successfully recovered database state from cfc_store.backup.json');
+          }
+        } catch (backupErr) {
+          console.error('[DatabaseStore] Backup file also unreadable:', backupErr);
+        }
+      }
+
+      // 3. If valid data was retrieved from either primary or backup
+      if (parsed && Array.isArray(parsed.users)) {
+        let modified = false;
+        // Ensure default admin exists
+        if (!parsed.users.some((u: UserSession) => u.role === 'ADMIN' || u.id === 'admin-001')) {
+          parsed.users.unshift({ ...DEFAULT_ADMIN });
+          modified = true;
+        }
+
+        // Ensure all stored passwords are secure hashes
+        parsed.users.forEach((u: UserSession) => {
+          if (u.password && !u.password.includes(':')) {
+            u.password = hashPassword(u.password);
+            modified = true;
+          }
+        });
+
+        if (!Array.isArray(parsed.requests)) parsed.requests = [];
+        if (!Array.isArray(parsed.clusters)) parsed.clusters = [];
+        if (!Array.isArray(parsed.workTokens)) parsed.workTokens = [];
+        if (!Array.isArray(parsed.projects)) parsed.projects = [];
+        if (!Array.isArray(parsed.evidence)) parsed.evidence = [];
+        if (!Array.isArray(parsed.inspections)) parsed.inspections = [];
+        if (!Array.isArray(parsed.communityObservations)) parsed.communityObservations = [];
+        if (!Array.isArray(parsed.ngoAssignments)) parsed.ngoAssignments = [];
+        if (!Array.isArray(parsed.auditEvents)) parsed.auditEvents = [];
+        if (!Array.isArray(parsed.notifications)) parsed.notifications = [];
+        if (!Array.isArray(parsed.tenders)) parsed.tenders = [];
+        if (!Array.isArray(parsed.quotes)) parsed.quotes = [];
+        if (!parsed.translationsCache) parsed.translationsCache = {};
+        
+        if (modified) {
+          this.saveData(parsed as DatabaseSchema);
+        } else {
+          this.syncBackup(parsed as DatabaseSchema);
+        }
+
+        return parsed as DatabaseSchema;
+      }
     } catch (err) {
-      console.warn('[DatabaseStore] Could not read persisted file, initializing clean database:', err);
+      console.warn('[DatabaseStore] Could not load persisted file, initializing clean database:', err);
     }
 
+    // 4. Only if neither file exists do we bootstrap initial clean database
     const clean = createCleanDatabase();
     this.saveData(clean);
     return clean;
@@ -288,20 +320,113 @@ class DatabaseStore {
     }
   }
 
+  public syncBackup(data?: DatabaseSchema): void {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(DB_BACKUP_FILE, JSON.stringify(data || this.data, null, 2), 'utf-8');
+    } catch {
+      // Non-blocking background backup write error
+    }
+  }
+
   private saveData(dataToSave?: DatabaseSchema) {
     try {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      fs.writeFileSync(DB_FILE, JSON.stringify(dataToSave || this.data, null, 2), 'utf-8');
+      const data = dataToSave || this.data;
+      const json = JSON.stringify(data, null, 2);
+
+      // 1. Atomic write using temporary file + rename to prevent corruption or partial flush
+      fs.writeFileSync(DB_TMP_FILE, json, 'utf-8');
+      fs.renameSync(DB_TMP_FILE, DB_FILE);
+
+      // 2. Also keep standby backup synchronized
+      this.syncBackup(data);
     } catch (err) {
       console.error('[DatabaseStore] Failed to write database to disk:', err);
     }
   }
 
-  public resetToClean(): DatabaseSchema {
-    this.data = createCleanDatabase();
+  public flush(): void {
     this.saveData();
+  }
+
+  public getDatabaseStats() {
+    return {
+      status: 'Persistent',
+      totalRecords:
+        (this.data.users?.length || 0) +
+        (this.data.requests?.length || 0) +
+        (this.data.clusters?.length || 0) +
+        (this.data.workTokens?.length || 0) +
+        (this.data.projects?.length || 0) +
+        (this.data.evidence?.length || 0) +
+        (this.data.inspections?.length || 0) +
+        (this.data.communityObservations?.length || 0) +
+        (this.data.ngoAssignments?.length || 0) +
+        (this.data.auditEvents?.length || 0) +
+        (this.data.tenders?.length || 0) +
+        (this.data.quotes?.length || 0),
+      usersCount: this.data.users?.length || 0,
+      requestsCount: this.data.requests?.length || 0,
+      clustersCount: this.data.clusters?.length || 0,
+      workTokensCount: this.data.workTokens?.length || 0,
+      projectsCount: this.data.projects?.length || 0,
+      evidenceCount: this.data.evidence?.length || 0,
+      inspectionsCount: this.data.inspections?.length || 0,
+      observationsCount: this.data.communityObservations?.length || 0,
+      ngoAssignmentsCount: this.data.ngoAssignments?.length || 0,
+      auditEventsCount: this.data.auditEvents?.length || 0,
+      tendersCount: this.data.tenders?.length || 0,
+      quotesCount: this.data.quotes?.length || 0,
+    };
+  }
+
+  public resetToClean(adminActor?: UserSession): DatabaseSchema {
+    // Preserve existing admin accounts so system remains administratively accessible and recoverable
+    const existingAdmins = (this.data.users || []).filter(u => u.role === 'ADMIN');
+    const adminToRetain = existingAdmins.length > 0 ? existingAdmins : [{ ...DEFAULT_ADMIN }];
+
+    const previousStats = this.getDatabaseStats();
+
+    // Create a fresh clean database
+    const fresh = createCleanDatabase();
+    fresh.users = adminToRetain;
+    
+    // Record audit event for the clean database action
+    const actorName = adminActor?.name || 'System Administrator';
+    const actorId = adminActor?.id || 'admin-001';
+    fresh.auditEvents = [
+      {
+        id: `AUDIT-CLEAN-DB-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        actor: actorName,
+        actorRole: 'ADMIN',
+        actorId: actorId,
+        actorName: actorName,
+        adminId: actorId,
+        action: 'DATABASE_CLEANED',
+        entityType: 'PLATFORM',
+        entityId: 'DATABASE_CLEANED',
+        details: `Administrator explicitly cleaned application database. Purged ${previousStats.totalRecords} previous operational records. Retained ${adminToRetain.length} admin identity account(s).`,
+        reason: 'Authorized Administrator database reset',
+        correlationId: `CLEAN-DB-${Date.now()}`,
+      }
+    ];
+
+    this.data = fresh;
+    this.saveData();
+
+    // Invalidate non-admin active sessions to maintain clean security state
+    for (const [token, session] of this.sessions.entries()) {
+      if (session.role !== 'ADMIN') {
+        this.sessions.delete(token);
+      }
+    }
+
     return this.data;
   }
 
@@ -770,27 +895,70 @@ class DatabaseStore {
 
     const rawDist = req.location?.district || req.incidentDistrict || req.location?.address || '';
     const normDist = normalizeDistrictName(rawDist);
+    const rawState = req.location?.state || req.incidentState || '';
+    const normState = normalizeStateName(rawState);
     const category = req.aiAnalysis?.category || 'CIVIC_INFRASTRUCTURE';
     const subcategory = req.aiAnalysis?.intent || 'CIVIC_REPAIR';
 
-    // Ward or ULB or address token
-    const wardOrAddress = (req.incidentWard || req.incidentULB || req.location?.address || '').toLowerCase();
+    // Normalize location tokens (address, ward, ULB)
+    const reqAddress = (req.location?.address || req.address || '').toLowerCase();
+    const reqWard = (req.incidentWard || req.location?.ward || '').toLowerCase();
+    const reqUlb = (req.incidentULB || req.location?.ulb || '').toLowerCase();
+    const reqTitle = (req.title || req.aiAnalysis?.translatedTitle || '').toLowerCase();
+    const reqDesc = (req.description || req.aiAnalysis?.translatedDescription || '').toLowerCase();
 
-    // Search for matching active cluster (same district & category)
+    // Extract key defect keywords for semantic clustering
+    const extractKeywords = (text: string) => {
+      const words = text.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3);
+      const stopWords = new Set(['this', 'that', 'with', 'from', 'have', 'there', 'please', 'near', 'road', 'street', 'area', 'ward']);
+      return words.filter(w => !stopWords.has(w));
+    };
+    const reqKeywords = extractKeywords(`${reqTitle} ${reqDesc} ${reqAddress}`);
+
+    // Search for matching active cluster
     let cluster = this.data.clusters.find((c) => {
       if (c.status === 'COMPLETED' || c.status === 'REJECTED') return false;
-      const cDist = normalizeDistrictName(c.location?.district || '');
-      if (cDist !== normDist) return false;
 
-      // Category must match (e.g. ROAD vs STREET_LIGHTING are separate clusters)
+      // 1. Category must match (e.g. ROAD vs STREET_LIGHTING are different operational problems)
       if (c.category !== category) return false;
 
-      // Locality / Ward match or overlapping address text or same subcategory
-      const cWardOrAddress = (c.location?.ward || c.location?.ulb || c.location?.address || '').toLowerCase();
-      const addressMatch = wardOrAddress && cWardOrAddress && (wardOrAddress.includes(cWardOrAddress) || cWardOrAddress.includes(wardOrAddress));
-      const subcatMatch = c.subcategory === subcategory;
+      // 2. Geographic State & District match
+      const cDist = normalizeDistrictName(c.location?.district || '');
+      if (normDist && cDist && normDist !== cDist) return false;
 
-      return addressMatch || subcatMatch || true;
+      const cState = normalizeStateName(c.location?.state || '');
+      if (normState && cState && normState !== cState) return false;
+
+      // 3. Locality / Address / Ward matching
+      const cAddress = (c.location?.address || '').toLowerCase();
+      const cWard = (c.location?.ward || '').toLowerCase();
+      const cUlb = (c.location?.ulb || '').toLowerCase();
+
+      // Check ward or ULB match
+      const wardMatch = (reqWard && cWard && (reqWard.includes(cWard) || cWard.includes(reqWard))) ||
+                        (reqUlb && cUlb && (reqUlb.includes(cUlb) || cUlb.includes(reqUlb)));
+
+      // Check address string overlap
+      const addressMatch = (reqAddress && cAddress && (reqAddress.includes(cAddress) || cAddress.includes(reqAddress)));
+
+      // 4. Keyword / semantic similarity for issues at same locality or district
+      const cTitle = (c.canonicalTitle || '').toLowerCase();
+      const cKeywords = extractKeywords(`${cTitle} ${cAddress}`);
+      const sharedKeywords = reqKeywords.filter(k => cKeywords.includes(k));
+      const hasSemanticOverlap = sharedKeywords.length >= 1;
+
+      // Match condition: same ward/ulb, overlapping address, or same locality with shared defect keywords
+      if (wardMatch) return true;
+      if (addressMatch) return true;
+      if (hasSemanticOverlap && (reqAddress.slice(0, 8) === cAddress.slice(0, 8) || !reqAddress || !cAddress)) return true;
+
+      // If both report the same defect in the same district and subcategory matches
+      if (hasSemanticOverlap && normDist && cDist && normDist === cDist) return true;
+
+      // Same subcategory in the same specific address locality
+      if (c.subcategory === subcategory && reqAddress && cAddress && (reqAddress.slice(0, 12) === cAddress.slice(0, 12))) return true;
+
+      return false;
     });
 
     if (cluster) {
@@ -910,3 +1078,15 @@ class DatabaseStore {
 }
 
 export const dbStore = new DatabaseStore();
+
+if (typeof process !== 'undefined') {
+  process.on('SIGINT', () => {
+    dbStore.flush();
+  });
+  process.on('SIGTERM', () => {
+    dbStore.flush();
+  });
+  process.on('beforeExit', () => {
+    dbStore.flush();
+  });
+}

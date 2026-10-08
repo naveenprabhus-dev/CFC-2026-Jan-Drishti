@@ -154,22 +154,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
           {/* Institutional Crest & Brand */}
           <div className="flex items-center gap-4 text-center md:text-left">
-            {/* CFC Logo Emblem Motif */}
+            {/* JanDrishti (JD) Logo Emblem Motif */}
             <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-950 border-2 border-emerald-500/40 shadow-xl flex flex-col items-center justify-center shrink-0 p-2 text-emerald-400">
               <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-11 h-11 sm:w-14 sm:h-14">
                 {/* Outer Emblem Hexagon */}
                 <path d="M50 10 L85 28 V72 L50 90 L15 72 V28 Z" stroke="currentColor" strokeWidth="3" />
                 <path d="M50 15 L80 31 V69 L50 85 L20 69 V31 Z" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" fill="currentColor" fillOpacity="0.05" />
                 
-                {/* Modern Stylized CFC Lettering Monogram */}
-                {/* Left C */}
-                <path d="M38 36 C30 40 30 60 38 64" stroke="currentColor" strokeWidth="4" />
+                {/* Modern Stylized JD Lettering Monogram */}
+                {/* Letter J */}
+                <path d="M34 36 H44 M40 36 V56 C40 63 32 63 30 56" stroke="currentColor" strokeWidth="4" />
                 
-                {/* Center F */}
-                <path d="M47 36 V64 M47 36 H55 M47 48 H53" stroke="currentColor" strokeWidth="4" />
-                
-                {/* Right C */}
-                <path d="M62 36 C54 40 54 60 62 64" stroke="currentColor" strokeWidth="4" />
+                {/* Letter D */}
+                <path d="M52 36 V64 M52 36 H59 C69 36 69 64 59 64 H52" stroke="currentColor" strokeWidth="4" />
                 
                 {/* Bottom Citizen/Growth Motif */}
                 <path d="M35 76 Q50 70 65 76" stroke="currentColor" strokeWidth="2.5" />

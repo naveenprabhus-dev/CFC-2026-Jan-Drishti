@@ -303,7 +303,8 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
     }
   };
 
-  const pendingRequestsCount = requests.filter((r) => r.status === 'SUBMITTED').length;
+  const pendingClustersCount = clusters.filter((c) => c.status === 'SUBMITTED').length;
+  const pendingRequestsCount = clusters.length > 0 ? pendingClustersCount : requests.filter((r) => r.status === 'SUBMITTED').length;
   const activeTokensCount = tokens.filter((t) => t.status === 'ACTIVE').length;
   const inspectionDueCount = projects.filter(
     (p) => p.status === 'VERIFICATION_REQUIRED' || p.status === 'DELAYED'
@@ -794,10 +795,7 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
         <ClusterTriageModal
           cluster={selectedClusterForTriage}
           onClose={() => setSelectedClusterForTriage(null)}
-          onSuccess={(updatedCluster, workToken) => {
-            setSelectedClusterForTriage(null);
-            fetchData();
-          }}
+          onSuccess={handleClusterTriageComplete}
         />
       )}
 
@@ -806,14 +804,6 @@ export const OfficialWorkspace: React.FC<OfficialWorkspaceProps> = ({
           request={selectedTriageRequest}
           onClose={() => setSelectedTriageRequest(null)}
           onSuccess={handleTriageComplete}
-        />
-      )}
-
-      {selectedClusterForTriage && (
-        <ClusterTriageModal
-          cluster={selectedClusterForTriage}
-          onClose={() => setSelectedClusterForTriage(null)}
-          onSuccess={handleClusterTriageComplete}
         />
       )}
 

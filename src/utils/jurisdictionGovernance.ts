@@ -103,6 +103,36 @@ export function normalizeLanguageCode(lang?: string): string {
   return 'en';
 }
 
+export function normalizeStateName(state?: string): string {
+  if (!state || !state.trim()) return '';
+  const s = state.toLowerCase().trim().replace(/[-_]/g, ' ');
+  const clean = s.replace(/[^a-z0-9]/g, '');
+
+  if (clean === 'tn' || clean === 'tamilnadu' || s.includes('tamil nadu') || s.includes('தமிழ்நாடு') || s.includes('तमिलनाडु')) {
+    return 'Tamil Nadu';
+  }
+  if (clean === 'mh' || clean === 'maharashtra' || s.includes('महाराष्ट्र')) {
+    return 'Maharashtra';
+  }
+  if (clean === 'ka' || clean === 'karnataka' || s.includes('कर्नाटक') || s.includes('ಕರ್ನಾಟಕ')) {
+    return 'Karnataka';
+  }
+  if (clean === 'kl' || clean === 'kerala' || s.includes('केरल') || s.includes('കേരളം')) {
+    return 'Kerala';
+  }
+  if (clean === 'ap' || clean === 'andhrapradesh' || s.includes('andhra') || s.includes('ఆంధ్రప్రదేశ్')) {
+    return 'Andhra Pradesh';
+  }
+  if (clean === 'up' || clean === 'uttarpradesh' || s.includes('उत्तर प्रदेश')) {
+    return 'Uttar Pradesh';
+  }
+  if (clean === 'dl' || clean === 'delhi' || s.includes('दिल्ली')) {
+    return 'Delhi';
+  }
+
+  return state.trim();
+}
+
 export function normalizeDistrictName(dist?: string): string {
   if (!dist || !dist.trim()) return '';
   const d = dist.toLowerCase().trim();
@@ -371,8 +401,17 @@ export function resolveEntityCircleIds(entity: Partial<UserSession>): string[] {
   if (rawText.includes('salem')) circles.add('TN-PWD-SALEM-CENTRAL');
   if (rawText.includes('trichy') || rawText.includes('tiruchirappalli')) circles.add('TN-PWD-TRICHY-CENTRAL');
 
-  // If statewide authority (e.g. state ministry / central admin)
-  if (rawText.includes('statewide') || rawText.includes('national') || rawText.includes('state ministry')) {
+  // If statewide authority (e.g. state ministry / central admin / policymaker / tamil nadu state)
+  const normState = normalizeStateName(entity.homeState || entity.jurisdiction || '');
+  if (
+    normState === 'Tamil Nadu' ||
+    rawText.includes('tamil nadu') ||
+    rawText.includes('tamilnadu') ||
+    rawText.includes('statewide') ||
+    rawText.includes('national') ||
+    rawText.includes('state ministry') ||
+    rawText.includes('planning commission')
+  ) {
     CANONICAL_CIRCLES.forEach(c => circles.add(c.id));
   }
 

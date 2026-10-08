@@ -23,6 +23,7 @@ import {
   resolveEntityCircleIds,
   findEligibleSanctioningAuthority,
   normalizeDistrictName,
+  normalizeStateName,
   normalizeLanguageCode,
 } from '../../src/utils/jurisdictionGovernance';
 import {
@@ -154,13 +155,13 @@ function filterByJurisdiction(items: any[], actor?: UserSession | null, location
 
   // Get actor geography
   const homeDistrict = normalizeDistrictName(actor.homeDistrict || '').trim().toLowerCase();
-  const homeState = (actor.homeState || '').trim().toLowerCase();
+  const actorNormState = normalizeStateName(actor.homeState || actor.jurisdiction || '').toLowerCase();
   const jurisdiction = (actor.jurisdiction || '').trim().toLowerCase();
   const authorizedRegion = normalizeDistrictName(actor.authorizedRegion || '').trim().toLowerCase();
 
   // Match list of geography bounds
   const distTargets = [homeDistrict, authorizedRegion].filter(Boolean);
-  const stateTargets = [homeState].filter(Boolean);
+  const stateTargets = [actorNormState].filter(Boolean);
   const generalTargets = [jurisdiction].filter(Boolean);
 
   // If no limits are defined on official/user profile, return all
@@ -181,17 +182,18 @@ function filterByJurisdiction(items: any[], actor?: UserSession | null, location
     }
 
     let rawDistrict = '';
-    let itemState = '';
+    let rawState = '';
 
     if (locationField === 'location') {
       rawDistrict = item.incidentDistrict || item.location?.district || '';
-      itemState = (item.incidentState || item.location?.state || '').trim().toLowerCase();
+      rawState = item.incidentState || item.location?.state || '';
     } else {
       rawDistrict = item.district || '';
-      itemState = (item.state || '').trim().toLowerCase();
+      rawState = item.state || '';
     }
 
     const itemDistrictNorm = normalizeDistrictName(rawDistrict).trim().toLowerCase();
+    const itemNormState = normalizeStateName(rawState).toLowerCase();
 
     // Match district
     if (distTargets.length > 0) {
@@ -202,7 +204,7 @@ function filterByJurisdiction(items: any[], actor?: UserSession | null, location
 
     // Match state
     if (stateTargets.length > 0) {
-      if (itemState && stateTargets.some(t => t === itemState || t.includes(itemState) || itemState.includes(t))) {
+      if (itemNormState && stateTargets.some(t => t === itemNormState || t.includes(itemNormState) || itemNormState.includes(t))) {
         return true;
       }
     }
@@ -1069,6 +1071,15 @@ apiRouter.post('/citizen/requests', async (req: Request, res: Response) => {
       };
 
       dbStore.createRequest(linkedRequest);
+
+      // Link to Issue Cluster so operational clustering accounts for all citizen submissions
+      const cluster = dbStore.resolveIssueClusterForRequest(linkedRequest);
+      if (cluster) {
+        dbStore.updateCluster(cluster.id, {
+          linkedProjectId: matchedProject.id,
+          linkedWorkTokenId: matchedToken?.id || matchedProject.workTokenId || cluster.linkedWorkTokenId,
+        });
+      }
 
       dbStore.logAudit({
         actor: citizenName,
@@ -1971,22 +1982,46 @@ apiRouter.post('/projects/:id/authorize-funding', (req: Request, res: Response) 
   }
 
   // 2. Jurisdiction validation
-  const pmDistrict = (actor.homeDistrict || actor.authorizedRegion || actor.jurisdiction || '').trim().toLowerCase();
-  const pmState = (actor.homeState || '').trim().toLowerCase();
-  const projDistrict = (project.district || '').trim().toLowerCase();
-  const projState = (project.state || '').trim().toLowerCase();
+  const actorNormState = normalizeStateName(actor.homeState || actor.jurisdiction || '');
+  const projNormState = normalizeStateName(project.state || '');
 
-  if (pmDistrict && !pmDistrict.includes(projDistrict) && !projDistrict.includes(pmDistrict)) {
+  const actorDistrictNorm = normalizeDistrictName(actor.homeDistrict || actor.authorizedRegion || '');
+  const projDistrictNorm = normalizeDistrictName(project.district || '');
+
+  const pmJurisdictionRaw = (actor.jurisdiction || '').toLowerCase();
+  const isStatewideOrCentral =
+    !actor.homeDistrict ||
+    actor.homeDistrict.trim() === '' ||
+    pmJurisdictionRaw.includes('statewide') ||
+    pmJurisdictionRaw.includes('all districts') ||
+    pmJurisdictionRaw.includes('tamil nadu') ||
+    pmJurisdictionRaw.includes('national') ||
+    pmJurisdictionRaw.includes('planning commission');
+
+  // Validate state alignment if state is specified on either party
+  if (actorNormState && projNormState && actorNormState !== projNormState) {
     return res.status(403).json({
       success: false,
-      error: { code: 'UNAUTHORIZED_JURISDICTION', message: `Unauthorized: Project region (${project.district}) is outside your authorized regional jurisdiction.` }
+      error: {
+        code: 'UNAUTHORIZED_JURISDICTION',
+        message: `Unauthorized: Project state (${project.state || projNormState}) is outside your authorized state jurisdiction (${actor.homeState || actorNormState}).`
+      }
     });
   }
-  if (pmState && !pmState.includes(projState) && !projState.includes(pmState)) {
-    return res.status(403).json({
-      success: false,
-      error: { code: 'UNAUTHORIZED_JURISDICTION', message: `Unauthorized: Project state (${project.state}) is outside your authorized state jurisdiction.` }
-    });
+
+  // Validate district alignment if Policymaker is district-restricted (not statewide)
+  if (!isStatewideOrCentral && actorDistrictNorm && projDistrictNorm && actorDistrictNorm !== projDistrictNorm) {
+    const rawMatch = pmJurisdictionRaw.includes(projDistrictNorm.toLowerCase()) ||
+                     projDistrictNorm.toLowerCase().includes(actorDistrictNorm.toLowerCase());
+    if (!rawMatch) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED_JURISDICTION',
+          message: `Unauthorized: Project region (${project.district}) is outside your authorized regional jurisdiction.`
+        }
+      });
+    }
   }
 
   // 3. Protection against amount tampering
@@ -5041,11 +5076,22 @@ apiRouter.post('/admin/audit/log', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
+apiRouter.get('/system/stats', (req: Request, res: Response) => {
+  const actor = requireAdmin(req, res);
+  if (!actor) return;
+
+  const stats = dbStore.getDatabaseStats();
+  res.json({
+    success: true,
+    data: stats,
+  });
+});
+
 apiRouter.post('/system/reset', (req: Request, res: Response) => {
   const actor = requireAdmin(req, res);
   if (!actor) return;
 
-  const fresh = dbStore.resetToClean();
+  const fresh = dbStore.resetToClean(actor);
   res.json({
     success: true,
     message: 'Database reset to clean state with primary Administrator account.',
